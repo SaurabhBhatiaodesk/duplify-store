@@ -30,10 +30,15 @@ function activeDevTunnelUrl(): string | null {
   }
 }
 
+function normalizeAppUrl(raw: string): string {
+  return raw.replace(/\/+$/, "");
+}
+
 export function externalOAuthAppUrl(request: Request): string {
-  return (
+  const resolved =
     activeDevTunnelUrl() ??
     process.env.SHOPIFY_APP_URL ??
-    new URL(request.url).origin
-  );
+    new URL(request.url).origin;
+
+  return normalizeAppUrl(resolved);
 }
