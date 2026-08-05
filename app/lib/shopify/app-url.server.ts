@@ -35,6 +35,16 @@ function normalizeAppUrl(raw: string): string {
 }
 
 export function externalOAuthAppUrl(request: Request): string {
+  // Production must always use the stable public app URL. Falling back to the
+  // request origin can produce an internal/proxy host that Shopify rejects.
+  if (process.env.NODE_ENV === "production") {
+    const productionUrl = process.env.SHOPIFY_APP_URL;
+    if (!productionUrl) {
+      throw new Error("SHOPIFY_APP_URL is required in production for OAuth redirects");
+    }
+    return normalizeAppUrl(productionUrl);
+  }
+
   const resolved =
     activeDevTunnelUrl() ??
     process.env.SHOPIFY_APP_URL ??

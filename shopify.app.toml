@@ -41,4 +41,6 @@ api_version = "2026-07"
   ]
 
 [build]
-automatically_update_urls_on_dev = true
+# Keep production OAuth allow-list stable. Turning this on lets local
+# `shopify app dev` overwrite Railway redirect URLs and breaks source approval.
+automatically_update_urls_on_dev = false
