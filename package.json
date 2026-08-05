@@ -1,0 +1,59 @@
+{
+  "name": "duplify-store",
+  "private": true,
+  "scripts": {
+    "build": "react-router build",
+    "dev": "shopify app dev",
+    "config:link": "shopify app config link",
+    "generate": "shopify app generate",
+    "deploy": "shopify app deploy",
+    "config:use": "shopify app config use",
+    "env": "shopify app env",
+    "start": "react-router-serve ./build/server/index.js",
+    "worker": "tsx worker.ts",
+    "docker-start": "npm run setup && npm run start",
+    "docker-start-worker": "npm run setup && npm run worker",
+    "setup": "prisma generate && prisma migrate deploy",
+    "lint": "eslint --cache --cache-location ./node_modules/.cache/eslint .",
+    "shopify": "shopify",
+    "prisma": "prisma",
+    "typecheck": "react-router typegen && tsc --noEmit"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20.19 <22 || >=22.12"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.16.3",
+    "@react-router/dev": "^7.18.1",
+    "@react-router/fs-routes": "^7.18.1",
+    "@react-router/node": "^7.18.1",
+    "@react-router/serve": "^7.18.1",
+    "@shopify/app-bridge-react": "^4.2.12",
+    "@shopify/shopify-api": "^13.1.0",
+    "@shopify/shopify-app-react-router": "^1.2.1",
+    "@shopify/shopify-app-session-storage-prisma": "^9.0.1",
+    "bullmq": "^5.81.2",
+    "dotenv": "^16.4.7",
+    "ioredis": "^5.4.2",
+    "isbot": "^5.1.31",
+    "prisma": "^6.16.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router": "^7.18.1",
+    "tsx": "^4.19.2",
+    "vite-tsconfig-paths": "^6.0.4",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@shopify/polaris-types": "^1.0.7",
+    "@types/node": "^22.10.5",
+    "@types/react": "^18.3.25",
+    "@types/react-dom": "^18.3.7",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  },
+  "overrides": {
+    "p-map": "^4.0.0"
+  }
+}

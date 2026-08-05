@@ -1,0 +1,12 @@
+# Local environment secrets (keep the committed template).
+.env
+.env.*
+!.env.example
+
+# Local dependencies and generated artifacts.
+node_modules/
+build/
+.shopify/
+.git/
+logs/
+coverage/

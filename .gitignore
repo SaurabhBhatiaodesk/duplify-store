@@ -1,0 +1,16 @@
+node_modules/
+build/
+.react-router/
+dist/
+
+.env
+.env.*
+!.env.example
+
+*.sqlite
+*.sqlite-journal
+
+.DS_Store
+npm-debug.log*
+
+.shopify/

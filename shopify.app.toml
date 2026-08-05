@@ -1,0 +1,45 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "17baeffee1331390a337b79633f40149"
+name = "Duplify Store"
+application_url = "https://black-lovers-combines-sharing.trycloudflare.com"
+embedded = true
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+# Keep in sync with REQUESTED_SCOPES in app/lib/shopify/scopes.ts
+scopes = "read_content,read_customers,read_discounts,read_draft_orders,read_files,read_inventory,read_locations,read_metaobject_definitions,read_metaobjects,read_online_store_navigation,read_orders,read_products,read_themes,write_content,write_customers,write_discounts,write_draft_orders,write_files,write_inventory,write_metaobject_definitions,write_metaobjects,write_online_store_navigation,write_orders,write_products,write_themes"
+
+[auth]
+# OAuth approval links return to the same /auth/callback route used by the
+# app's Shopify authentication flow. Production must replace this temporary
+# development host with its stable public domain before deployment.
+redirect_urls = [
+  "https://black-lovers-combines-sharing.trycloudflare.com/auth/callback"
+]
+
+[webhooks]
+api_version = "2026-07"
+
+  # Handled by: /app/routes/webhooks.app.uninstalled.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = ["app/uninstalled"]
+
+  # Handled by: /app/routes/webhooks.app.scopes_update.tsx
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = ["app/scopes_update"]
+
+  # Mandatory privacy-law webhooks. HMAC verification and processing are
+  # handled by /app/routes/webhooks.compliance.tsx.
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/compliance"
+  compliance_topics = [
+    "customers/data_request",
+    "customers/redact",
+    "shop/redact"
+  ]
+
+[build]
+automatically_update_urls_on_dev = true
