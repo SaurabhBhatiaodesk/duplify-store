@@ -97,11 +97,10 @@ export function PermissionBanner({
               Approve with the source-store account
             </s-text>
             <s-paragraph>
-              Copy the secure approval link, then paste it in a new or Incognito
-              browser tab logged into{" "}
-              <s-text type="strong">{sourceShopDomain}</s-text>. You can also
-              send the link to that store's admin. The link expires after 10
-              minutes and can be used once.
+              Copy the approval link and open it while signed in to{" "}
+              <s-text type="strong">{sourceShopDomain}</s-text>. Approve the
+              request to continue. You can also send the link to that store's
+              admin. The link expires after 10 minutes and can be used once.
             </s-paragraph>
           </s-stack>
         )}
