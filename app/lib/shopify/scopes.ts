@@ -30,6 +30,7 @@ export const PHASE_3_SCOPES = [
   "read_discounts",
   "write_discounts",
   "read_orders",
+  "read_all_orders",
   "write_orders",
   "read_draft_orders",
   "write_draft_orders",
@@ -79,7 +80,12 @@ export const RESOURCE_TYPE_SCOPES: Record<string, readonly string[]> = {
   metaobject: ["read_metaobjects", "write_metaobjects"],
   menu: ["read_online_store_navigation", "write_online_store_navigation"],
   discount: ["read_discounts", "write_discounts"],
-  order: ["read_orders", "read_draft_orders", "write_draft_orders"],
+  order: [
+    "read_orders",
+    "read_all_orders",
+    "read_draft_orders",
+    "write_draft_orders",
+  ],
   theme: ["read_themes", "write_themes"],
 };
 
