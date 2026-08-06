@@ -11,7 +11,6 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { listConnectionsForOwner } from "../lib/services/storeConnection.service";
-import { isValidShopDomain } from "../lib/shopify/shop-domain";
 import {
   missingRequestedScopes,
   REQUESTED_SCOPES,
@@ -21,7 +20,6 @@ import { EmptyState } from "../components/shared/EmptyState";
 import { ConfirmDestructiveModal } from "../components/shared/ConfirmDestructiveModal";
 import { PermissionBanner } from "../components/dashboard/PermissionBanner";
 import type { action as installPairAction } from "./api.connections.install-pair";
-import type { action as manualConnectAction } from "./api.connections.manual-connect";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -51,16 +49,10 @@ export default function ConnectStores() {
   const [searchParams] = useSearchParams();
   const revalidator = useRevalidator();
   const [otherShop, setOtherShop] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [accessToken, setAccessToken] = useState("");
-
   const installPair = useFetcher<typeof installPairAction>();
-  const manualConnect = useFetcher<typeof manualConnectAction>();
   const isPairing = installPair.state !== "idle";
-  const isConnecting = manualConnect.state !== "idle";
   const shopify = useAppBridge();
-  const [isCopyingLink, setIsCopyingLink] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+
   const permissionConnection = connections.find(
     (connection) => connection.id === searchParams.get("connectionId"),
   );
@@ -86,65 +78,12 @@ export default function ConnectStores() {
     : "/app/connect";
 
   useEffect(() => {
-    function handleMessage(event: MessageEvent) {
-      if (event.data?.source === "duplify-external-oauth") {
-        revalidator.revalidate();
-      }
-    }
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [revalidator]);
-
-  useEffect(() => {
     if (installPair.state === "idle" && installPair.data?.ok) {
       setOtherShop("");
       shopify.toast.show("Source store connected");
       revalidator.revalidate();
     }
   }, [installPair.state, installPair.data, revalidator, shopify]);
-
-  useEffect(() => {
-    if (manualConnect.state === "idle" && manualConnect.data?.ok) {
-      setOtherShop("");
-      setAccessToken("");
-      revalidator.revalidate();
-    }
-  }, [manualConnect.state, manualConnect.data, revalidator]);
-
-  function validatedDomain(): string | null {
-    const domain = otherShop.trim().toLowerCase();
-    if (!isValidShopDomain(domain)) {
-      setError("Enter a valid shop domain, e.g. your-store.myshopify.com");
-      return null;
-    }
-    setError(null);
-    return domain;
-  }
-
-  async function copyConnectLink() {
-    const domain = validatedDomain();
-    if (!domain) return;
-
-    setIsCopyingLink(true);
-    try {
-      const response = await fetch(
-        `/api/connections/external-link?shop=${encodeURIComponent(domain)}&role=SOURCE`,
-      );
-      const data = (await response.json()) as { url?: string; error?: string };
-      if (!data.url) {
-        setError(data.error ?? "Could not generate a link");
-        return;
-      }
-      await navigator.clipboard.writeText(data.url);
-      shopify.toast.show(
-        "Approval link copied — send it to the source-store admin",
-      );
-    } catch {
-      setError("Could not copy the link. Try again.");
-    } finally {
-      setIsCopyingLink(false);
-    }
-  }
 
   const sourceHandle = otherShop
     .trim()
@@ -170,133 +109,64 @@ export default function ConnectStores() {
           </s-banner>
         ))}
 
-      <s-section heading="Destination store">
+      <s-section heading="How it works">
         <s-stack direction="block" gap="base">
           <s-paragraph>
-            <s-text type="strong">{currentShopDomain}</s-text> is where data will
-            be imported.
+            1. Install Duplify on the source store and open it once.
+            <br />
+            2. Come back to this store and enter the source domain.
+            <br />
+            3. Connect — import starts from there.
+          </s-paragraph>
+          <s-paragraph>
+            This store (<s-text type="strong">{currentShopDomain}</s-text>) is
+            the destination.
           </s-paragraph>
         </s-stack>
       </s-section>
 
-      <s-section heading="Step 1: Connect source store">
-        <s-stack direction="block" gap="base">
-          <s-banner tone="info" heading="Easiest way">
-            <s-paragraph>
-              1. Install Duplify Store on the source store and open the app once.
-              <br />
-              2. Come back here and enter that store domain.
-              <br />
-              3. Click Connect — we use the access from install. No custom app
-              token needed.
-            </s-paragraph>
-          </s-banner>
-
-          <installPair.Form
-            method="post"
-            action="/api/connections/install-pair"
-          >
-            <s-stack direction="block" gap="base">
-              <s-text-field
-                name="sourceShopDomain"
-                label="Source store domain"
-                placeholder="source-store.myshopify.com"
-                value={otherShop}
-                onChange={(e) => setOtherShop(e.currentTarget.value)}
-                error={error ?? undefined}
-              ></s-text-field>
-              {installPair.data && !installPair.data.ok && (
-                <s-banner tone="critical" heading="Couldn't connect">
-                  <s-paragraph>{installPair.data.error}</s-paragraph>
-                  {"needsInstall" in installPair.data &&
-                    installPair.data.needsInstall && (
-                      <s-paragraph>
-                        <s-link href={sourceInstallHref} target="_blank">
-                          Install Duplify on source store
-                        </s-link>
-                      </s-paragraph>
-                    )}
-                </s-banner>
-              )}
-              {installPair.data?.ok && (
-                <s-banner tone="success" heading="Source store connected" />
-              )}
-              <s-button
-                type="submit"
-                variant="primary"
-                {...(isPairing ? { loading: true } : {})}
-              >
-                Connect source store
-              </s-button>
-            </s-stack>
-          </installPair.Form>
-
-          <s-button onClick={() => setShowAdvanced((value) => !value)}>
-            {showAdvanced ? "Hide other options" : "Other connect options"}
-          </s-button>
-
-          {showAdvanced && (
-            <s-stack direction="block" gap="base">
-              <s-paragraph>
-                Approval link (if source store cannot install the app yet):
-              </s-paragraph>
-              <s-button
-                onClick={copyConnectLink}
-                {...(isCopyingLink ? { loading: true } : {})}
-              >
-                Copy source approval link
-              </s-button>
-
-              <s-paragraph>
-                Legacy Admin API token (only if you already have an old{" "}
-                <s-text type="strong">shpat_</s-text> token):
-              </s-paragraph>
-              <manualConnect.Form
-                method="post"
-                action="/api/connections/manual-connect"
-              >
-                <input type="hidden" name="ownerRole" value="DESTINATION" />
-                <s-stack direction="block" gap="base">
-                  <s-text-field
-                    name="shopDomain"
-                    label="Source store domain"
-                    placeholder="source-store.myshopify.com"
-                    value={otherShop}
-                    onChange={(e) => setOtherShop(e.currentTarget.value)}
-                  ></s-text-field>
-                  <s-password-field
-                    name="accessToken"
-                    label="Admin API access token"
-                    placeholder="shpat_..."
-                    value={accessToken}
-                    onChange={(e) => setAccessToken(e.currentTarget.value)}
-                  ></s-password-field>
-                  {manualConnect.data && !manualConnect.data.ok && (
-                    <s-banner tone="critical" heading="Couldn't connect">
-                      <s-paragraph>{manualConnect.data.error}</s-paragraph>
-                    </s-banner>
+      <s-section heading="Connect source store">
+        <installPair.Form method="post" action="/api/connections/install-pair">
+          <s-stack direction="block" gap="base">
+            <s-text-field
+              name="sourceShopDomain"
+              label="Source store domain"
+              placeholder="source-store.myshopify.com"
+              value={otherShop}
+              onChange={(e) => setOtherShop(e.currentTarget.value)}
+            ></s-text-field>
+            {installPair.data && !installPair.data.ok && (
+              <s-banner tone="critical" heading="Couldn't connect">
+                <s-paragraph>{installPair.data.error}</s-paragraph>
+                {"needsInstall" in installPair.data &&
+                  installPair.data.needsInstall && (
+                    <s-paragraph>
+                      <s-link href={sourceInstallHref} target="_blank">
+                        Install Duplify on source store
+                      </s-link>
+                    </s-paragraph>
                   )}
-                  {manualConnect.data?.ok && (
-                    <s-banner tone="success" heading="Store connected" />
-                  )}
-                  <s-button
-                    type="submit"
-                    {...(isConnecting ? { loading: true } : {})}
-                  >
-                    Connect with legacy token
-                  </s-button>
-                </s-stack>
-              </manualConnect.Form>
-            </s-stack>
-          )}
-        </s-stack>
+              </s-banner>
+            )}
+            {installPair.data?.ok && (
+              <s-banner tone="success" heading="Source store connected" />
+            )}
+            <s-button
+              type="submit"
+              variant="primary"
+              {...(isPairing ? { loading: true } : {})}
+            >
+              Connect source store
+            </s-button>
+          </s-stack>
+        </installPair.Form>
       </s-section>
 
       <s-section heading="Connected store pairs">
         {connections.length === 0 ? (
           <EmptyState
             heading="No store pairs yet"
-            message="Once you connect a source and destination store, they'll show up here."
+            message="Connect a source store to see it here."
           />
         ) : (
           <s-stack direction="block" gap="base">
@@ -357,7 +227,7 @@ export default function ConnectStores() {
                         <ConfirmDestructiveModal
                           id={modalId}
                           heading="Disconnect this store pair?"
-                          message={`This won't delete anything already migrated between ${c.source} and ${c.destination} — their ID mappings and migration history stay put. You'd need to reconnect to run new migrations between them.`}
+                          message={`This won't delete anything already migrated between ${c.source} and ${c.destination}.`}
                           confirmLabel="Disconnect"
                           triggerLabel="Disconnect"
                           formId={formId}
@@ -380,22 +250,6 @@ export default function ConnectStores() {
             })}
           </s-stack>
         )}
-      </s-section>
-
-      <s-section slot="aside" heading="What can't be migrated">
-        <s-unordered-list>
-          <s-list-item>
-            Customer passwords never transfer — customers must reset theirs
-          </s-list-item>
-          <s-list-item>
-            Payment gateways, payouts, domains, billing and staff permissions
-            are manual
-          </s-list-item>
-          <s-list-item>
-            Third-party app data only migrates if that app exposes an
-            export/import API
-          </s-list-item>
-        </s-unordered-list>
       </s-section>
     </s-page>
   );
