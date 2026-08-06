@@ -604,9 +604,10 @@ export default function Overview() {
                   <s-stack direction="block" gap="small-200">
                     {hasThemeLimitation && (
                       <s-paragraph>
-                        Theme files copy into an existing destination theme with
-                        the same name. Create that theme first and only migrate
-                        themes you are licensed to use.
+                        Theme files are copied to an unpublished theme on the
+                        destination (created automatically if needed). Publish
+                        it from Online Store → Themes when you are ready. Only
+                        migrate themes you are licensed to use.
                       </s-paragraph>
                     )}
                     {hasDiscountLimitation && (

@@ -190,7 +190,6 @@ export async function runScan(migrationJobId: string): Promise<void> {
       { key: "files", resourceType: "file" },
       { key: "menus", resourceType: "menu" },
       { key: "discounts", resourceType: "discount" },
-      { key: "theme", resourceType: "theme" },
       { key: "metafield_definitions", resourceType: "metafield_definition" },
       { key: "metaobject_definitions", resourceType: "metaobject_definition" },
       { key: "metaobjects", resourceType: "metaobject" },
@@ -205,6 +204,10 @@ export async function runScan(migrationJobId: string): Promise<void> {
         sampleTruncated: false,
         unsupported: ["Exact count shown after migration starts"],
       };
+    }
+
+    if (resources.includes("theme") && !summary.resources.theme) {
+      summary.resources.theme = await scanTheme(sourceAdmin);
     }
 
     const totalRecords = Object.values(summary.resources).reduce(
@@ -311,6 +314,44 @@ async function scanApprox(
     sampleTruncated: count >= CONFLICT_SAMPLE_SIZE,
     unsupported: [],
   };
+}
+
+async function scanTheme(sourceAdmin: AdminClient): Promise<ResourceScanResult> {
+  try {
+    const result = await sourceAdmin.graphql<{
+      themes: { edges: Array<{ node: { id: string; name: string } }> };
+    }>(
+      `#graphql
+        query duplifyThemeScan {
+          themes(first: 1, roles: [MAIN]) {
+            edges { node { id name } }
+          }
+        }
+      `,
+      undefined,
+      5,
+    );
+    const theme = result.themes.edges[0]?.node;
+    return {
+      total: theme ? 1 : 0,
+      sampledConflicts: 0,
+      sampleSize: theme ? 1 : 0,
+      sampleTruncated: false,
+      unsupported: theme
+        ? [
+            `Will copy "${theme.name}" files into an unpublished theme on destination (auto-created if needed)`,
+          ]
+        : ["No live theme found on source"],
+    };
+  } catch {
+    return {
+      total: 1,
+      sampledConflicts: 0,
+      sampleSize: 0,
+      sampleTruncated: false,
+      unsupported: ["Theme will be migrated when the job runs"],
+    };
+  }
 }
 
 async function scanByHandle(
