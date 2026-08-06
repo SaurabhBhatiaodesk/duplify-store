@@ -2,22 +2,19 @@ import db from "../../db.server";
 import { encryptToken } from "../crypto/token-cipher";
 import { isValidShopDomain } from "../shopify/shop-domain";
 import { ADMIN_API_VERSION } from "../shopify/admin-client";
-import { REQUESTED_SCOPES } from "../shopify/scopes";
+import { missingRequestedScopes } from "../shopify/scopes";
 
-// Alternative to the OAuth popup flow (auth.external.begin/callback) for
-// connecting the "other" store — useful when the person operating this app
-// doesn't have (and doesn't want to get) a Shopify login with access to that
-// store: they instead ask whoever owns that store to create a Custom App
-// there (Settings > Apps > Develop apps), grant it the scopes listed on the
-// Connect Stores page, and hand over just the generated Admin API access
-// token — nothing more sensitive than that ever has to change hands.
+// Alternative to the OAuth popup flow for connecting the "other" store:
+// paste an Admin API access token from a Custom App on that shop.
 
 interface ShopCheckResponse {
   data?: { shop?: { name: string } };
   errors?: Array<{ message: string }>;
 }
 
-export type ConnectResult = { ok: true } | { ok: false; error: string };
+export type ConnectResult =
+  | { ok: true; warning?: string }
+  | { ok: false; error: string };
 
 export async function connectViaAccessToken(params: {
   ownerShopId: string;
@@ -51,9 +48,6 @@ export async function connectViaAccessToken(params: {
     };
   }
 
-  // Verify the token actually works against this shop before storing
-  // anything — a bad/expired/wrong-shop token should fail loudly here, not
-  // silently at the first migration attempt.
   let shopCheck: ShopCheckResponse;
   try {
     const response = await fetch(
@@ -74,14 +68,12 @@ export async function connectViaAccessToken(params: {
       );
       return {
         ok: false,
-        error: `This access token was rejected by Shopify (${response.status}: ${body.slice(0, 200)}). Double-check it was copied in full (starts with "shpat_", ~38 chars total), the app is installed on that store, and the token hasn't been revoked/regenerated since.`,
+        error:
+          "This access token was rejected by Shopify. Copy the full token (starts with shpat_) and make sure the custom app is installed on that store.",
       };
     }
     if (!response.ok) {
       const body = await response.text();
-      console.error(
-        `Manual connect unexpected status for ${shopDomain}: ${response.status} ${body}`,
-      );
       return {
         ok: false,
         error: `Shopify returned an unexpected error (${response.status}): ${body.slice(0, 200)}`,
@@ -89,10 +81,6 @@ export async function connectViaAccessToken(params: {
     }
     shopCheck = (await response.json()) as ShopCheckResponse;
     if (shopCheck.errors && shopCheck.errors.length > 0) {
-      console.error(
-        `Manual connect GraphQL errors for ${shopDomain}:`,
-        shopCheck.errors,
-      );
       return {
         ok: false,
         error: `Shopify rejected the request: ${shopCheck.errors.map((e) => e.message).join("; ")}`,
@@ -110,12 +98,10 @@ export async function connectViaAccessToken(params: {
     return {
       ok: false,
       error:
-        "Shopify accepted the request but didn't return shop data — the token may be missing required scopes.",
+        "Shopify accepted the request but didn't return shop data — the token may be invalid.",
     };
   }
 
-  // Access tokens don't self-report their granted scopes via GraphQL; the
-  // classic REST endpoint does.
   let scope = "";
   try {
     const scopesResponse = await fetch(
@@ -133,33 +119,23 @@ export async function connectViaAccessToken(params: {
   } catch {
     return {
       ok: false,
-      error:
-        "Could not verify the token's granted scopes. Recreate the custom app token with all required scopes and try again.",
+      error: "Could not verify the token's granted scopes. Try again.",
     };
   }
 
   if (!scope) {
     return {
       ok: false,
-      error:
-        "Could not read the token's granted scopes. Recreate the custom app token with all required scopes and try again.",
+      error: "Could not read the token's granted scopes. Try again.",
     };
   }
 
-  const grantedScopes = new Set(
-    scope
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-  );
-  const missingScopes = REQUESTED_SCOPES.filter(
-    (requiredScope) => !grantedScopes.has(requiredScope),
-  );
+  // Accept partial scopes; scan/PermissionBanner show what is still missing.
+  const missingScopes = missingRequestedScopes(scope);
   if (missingScopes.length > 0) {
-    return {
-      ok: false,
-      error: `This token is missing required scopes: ${missingScopes.join(", ")}. Grant all required Admin API scopes, then install or regenerate the token again.`,
-    };
+    console.warn(
+      `Manual connect for ${shopDomain} granted partial scopes. Missing: ${missingScopes.join(",")}`,
+    );
   }
 
   const externalShop = await db.shop.upsert({
@@ -196,5 +172,13 @@ export async function connectViaAccessToken(params: {
     update: { status: "READY" },
   });
 
-  return { ok: true };
+  return {
+    ok: true,
+    ...(missingScopes.length > 0
+      ? {
+          warning:
+            "Connected. Some permissions are still missing — scan will show what still needs access.",
+        }
+      : {}),
+  };
 }
