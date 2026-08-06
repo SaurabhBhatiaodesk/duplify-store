@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import {
   Form,
@@ -46,13 +46,20 @@ export default function ConnectStores() {
   const installPair = useFetcher<typeof installPairAction>();
   const isPairing = installPair.state !== "idle";
   const shopify = useAppBridge();
+  const wasPairing = useRef(false);
 
   useEffect(() => {
-    if (installPair.state === "idle" && installPair.data?.ok) {
-      setOtherShop("");
-      shopify.toast.show("Stores connected");
-      revalidator.revalidate();
+    if (installPair.state !== "idle") {
+      wasPairing.current = true;
+      return;
     }
+    // Only toast once after a successful Connect submit — not on every
+    // revalidate/re-render while fetcher.data.ok is still set.
+    if (!wasPairing.current || !installPair.data?.ok) return;
+    wasPairing.current = false;
+    setOtherShop("");
+    shopify.toast.show("Stores connected");
+    revalidator.revalidate();
   }, [installPair.state, installPair.data, revalidator, shopify]);
 
   const otherHandle = otherShop
