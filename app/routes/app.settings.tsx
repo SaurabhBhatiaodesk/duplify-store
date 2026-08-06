@@ -16,8 +16,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
   const connections = await db.storeConnection.findMany({
     where: {
-      ownerShopId: shop.id,
       status: { not: "ARCHIVED" },
+      OR: [
+        { ownerShopId: shop.id },
+        { sourceShopId: shop.id },
+        { destinationShopId: shop.id },
+      ],
     },
     select: {
       sourceShop: {

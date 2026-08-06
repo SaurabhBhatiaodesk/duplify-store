@@ -15,9 +15,13 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const form = await request.formData();
   const returnTo = String(form.get("returnTo") || "/app/migrations");
 
-  const job = await db.migrationJob.findFirstOrThrow({
-    where: { id: params.id, storeConnection: { ownerShopId: shop.id } },
+  const { migrationJobForShopWhere } = await import("../lib/services/storeConnection.service");
+  const job = await db.migrationJob.findFirst({
+    where: migrationJobForShopWhere(params.id!, shop.id),
   });
+  if (!job) {
+    return redirect("/app/migrations");
+  }
 
   if (ACTIVE_STATUSES.has(job.status)) {
     return redirect(returnTo.startsWith("/app") ? returnTo : "/app/migrations");

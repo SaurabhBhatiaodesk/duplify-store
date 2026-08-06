@@ -37,8 +37,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const connections = await listConnectionsForOwner(shop.id);
 
+  const shopConnectionAccess = {
+    OR: [
+      { ownerShopId: shop.id },
+      { sourceShopId: shop.id },
+      { destinationShopId: shop.id },
+    ],
+  };
+
   const rawJobs = await db.migrationJob.findMany({
-    where: { storeConnection: { ownerShopId: shop.id } },
+    where: { storeConnection: shopConnectionAccess },
     include: {
       storeConnection: { include: { sourceShop: true, destinationShop: true } },
     },
@@ -50,15 +58,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const [active, completed, failed] = await Promise.all([
     db.migrationJob.count({
       where: {
-        storeConnection: { ownerShopId: shop.id },
+        storeConnection: shopConnectionAccess,
         status: { in: ["QUEUED", "RUNNING", "SCANNING"] },
       },
     }),
     db.migrationJob.count({
-      where: { storeConnection: { ownerShopId: shop.id }, status: "COMPLETED" },
+      where: { storeConnection: shopConnectionAccess, status: "COMPLETED" },
     }),
     db.migrationJob.count({
-      where: { storeConnection: { ownerShopId: shop.id }, status: "FAILED" },
+      where: { storeConnection: shopConnectionAccess, status: "FAILED" },
     }),
   ]);
 
@@ -372,7 +380,7 @@ export default function Overview() {
   const [storeConnectionId, setStoreConnectionId] = useState(
     searchParams.get("connectionId") ?? readyConnections[0]?.id ?? "",
   );
-  const [type, setType] = useState("FULL");
+  const [type, setType] = useState("PRODUCTS");
   const [resources, setResources] = useState<string[]>(["products", "images"]);
   const [limitationsDismissed, setLimitationsDismissed] = useState(false);
   const [themeSourceId, setThemeSourceId] = useState("");

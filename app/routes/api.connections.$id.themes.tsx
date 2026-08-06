@@ -44,10 +44,20 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     where: { shopDomain: session.shop },
   });
 
-  const connection = await db.storeConnection.findFirstOrThrow({
-    where: { id: params.id, ownerShopId: shop.id },
+  const connection = await db.storeConnection.findFirst({
+    where: {
+      id: params.id,
+      OR: [
+        { ownerShopId: shop.id },
+        { sourceShopId: shop.id },
+        { destinationShopId: shop.id },
+      ],
+    },
     include: { sourceShop: true },
   });
+  if (!connection) {
+    return Response.json({ themes: [], error: "Connection not found" }, { status: 404 });
+  }
 
   if (!hasScope(connection.sourceShop.scope, "read_themes")) {
     return missingThemesScopeResponse();

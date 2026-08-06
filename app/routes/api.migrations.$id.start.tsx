@@ -9,6 +9,7 @@ import {
   liveMissingAppPermissions,
   needsPermissionRescan,
 } from "../lib/services/permissionStatus.server";
+import { migrationJobForShopWhere } from "../lib/services/storeConnection.service";
 
 export const loader = async ({ params }: LoaderFunctionArgs) => {
   return redirect(`/app/migrations/${params.id}/scan`);
@@ -20,12 +21,15 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     where: { shopDomain: session.shop },
   });
 
-  const job = await db.migrationJob.findFirstOrThrow({
-    where: { id: params.id, storeConnection: { ownerShopId: shop.id } },
+  const job = await db.migrationJob.findFirst({
+    where: migrationJobForShopWhere(params.id!, shop.id),
     include: {
       storeConnection: { include: { sourceShop: true, destinationShop: true } },
     },
   });
+  if (!job) {
+    return redirect("/app/migrations");
+  }
 
   if (job.status !== "SCANNED") {
     return redirect(`/app/migrations/${job.id}/scan`);

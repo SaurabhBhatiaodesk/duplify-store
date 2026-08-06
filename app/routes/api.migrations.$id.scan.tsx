@@ -3,6 +3,7 @@ import { redirect } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { runScan } from "../lib/services/scan.service";
+import { migrationJobForShopWhere } from "../lib/services/storeConnection.service";
 
 export const loader = async ({ params }: LoaderFunctionArgs) => {
   return redirect(`/app/migrations/${params.id}/scan`);
@@ -14,9 +15,12 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     where: { shopDomain: session.shop },
   });
 
-  const job = await db.migrationJob.findFirstOrThrow({
-    where: { id: params.id, storeConnection: { ownerShopId: shop.id } },
+  const job = await db.migrationJob.findFirst({
+    where: migrationJobForShopWhere(params.id!, shop.id),
   });
+  if (!job) {
+    return redirect("/app/migrations");
+  }
 
   if (!["DRAFT", "SCANNED", "FAILED"].includes(job.status)) {
     return redirect(`/app/migrations/${job.id}/scan`);

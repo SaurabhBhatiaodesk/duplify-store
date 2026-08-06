@@ -19,9 +19,13 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = await db.shop.findUniqueOrThrow({ where: { shopDomain: session.shop } });
 
-  const job = await db.migrationJob.findFirstOrThrow({
-    where: { id: params.id, storeConnection: { ownerShopId: shop.id } },
+  const { migrationJobForShopWhere } = await import("../lib/services/storeConnection.service");
+  const job = await db.migrationJob.findFirst({
+    where: migrationJobForShopWhere(params.id!, shop.id),
   });
+  if (!job) {
+    return new Response("Not found", { status: 404 });
+  }
 
   const items = await db.migrationItem.findMany({
     where: { migrationJobId: job.id, status: { in: ["FAILED", "SKIPPED"] } },

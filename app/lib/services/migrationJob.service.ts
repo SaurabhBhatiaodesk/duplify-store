@@ -132,12 +132,28 @@ export async function listMigrationJobs(filters: MigrationHistoryFilters) {
       status: filters.status,
       type: filters.type,
       storeConnection: {
-        ownerShopId: filters.ownerShopId,
+        OR: [
+          { ownerShopId: filters.ownerShopId },
+          { sourceShopId: filters.ownerShopId },
+          { destinationShopId: filters.ownerShopId },
+        ],
         ...(filters.search
           ? {
-              OR: [
-                { sourceShop: { shopDomain: { contains: filters.search, mode: "insensitive" } } },
-                { destinationShop: { shopDomain: { contains: filters.search, mode: "insensitive" } } },
+              AND: [
+                {
+                  OR: [
+                    {
+                      sourceShop: {
+                        shopDomain: { contains: filters.search, mode: "insensitive" },
+                      },
+                    },
+                    {
+                      destinationShop: {
+                        shopDomain: { contains: filters.search, mode: "insensitive" },
+                      },
+                    },
+                  ],
+                },
               ],
             }
           : {}),
