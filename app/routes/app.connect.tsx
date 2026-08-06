@@ -39,6 +39,10 @@ export default function ConnectStores() {
   const { currentShopDomain, connections } = useLoaderData<typeof loader>();
   const revalidator = useRevalidator();
   const [otherShop, setOtherShop] = useState("");
+  // DESTINATION = import into this store; SOURCE = export from this store
+  const [currentRole, setCurrentRole] = useState<"DESTINATION" | "SOURCE">(
+    "DESTINATION",
+  );
   const installPair = useFetcher<typeof installPairAction>();
   const isPairing = installPair.state !== "idle";
   const shopify = useAppBridge();
@@ -46,63 +50,111 @@ export default function ConnectStores() {
   useEffect(() => {
     if (installPair.state === "idle" && installPair.data?.ok) {
       setOtherShop("");
-      shopify.toast.show("Source store connected");
+      shopify.toast.show("Stores connected");
       revalidator.revalidate();
     }
   }, [installPair.state, installPair.data, revalidator, shopify]);
 
-  const sourceHandle = otherShop
+  const otherHandle = otherShop
     .trim()
     .toLowerCase()
     .replace(/\.myshopify\.com$/, "");
-  const sourceInstallHref = sourceHandle
-    ? `https://admin.shopify.com/store/${sourceHandle}/oauth/install?client_id=17baeffee1331390a337b79633f40149`
+  const otherInstallHref = otherHandle
+    ? `https://admin.shopify.com/store/${otherHandle}/oauth/install?client_id=17baeffee1331390a337b79633f40149`
     : "https://admin.shopify.com/oauth/install?client_id=17baeffee1331390a337b79633f40149";
+
+  const sourceLabel =
+    currentRole === "DESTINATION" ? otherShop || "—" : currentShopDomain;
+  const destinationLabel =
+    currentRole === "DESTINATION" ? currentShopDomain : otherShop || "—";
 
   return (
     <s-page heading="Set up your import" inlineSize="large">
-      <s-section heading="Connect source store">
+      <s-section heading="Choose stores">
         <s-stack direction="block" gap="base">
           <s-paragraph>
-            Install Duplify on the source store, open it once, then enter that
-            domain here. Data will import into{" "}
-            <s-text type="strong">{currentShopDomain}</s-text>.
+            Pick where data comes from (Source) and where it goes
+            (Destination). Install Duplify on both stores, then connect.
           </s-paragraph>
+
+          <s-stack direction="inline" gap="base">
+            <s-button
+              variant={currentRole === "DESTINATION" ? "primary" : "secondary"}
+              onClick={() => setCurrentRole("DESTINATION")}
+            >
+              Import into this store
+            </s-button>
+            <s-button
+              variant={currentRole === "SOURCE" ? "primary" : "secondary"}
+              onClick={() => setCurrentRole("SOURCE")}
+            >
+              Export from this store
+            </s-button>
+          </s-stack>
+
+          <s-box
+            padding="base"
+            borderWidth="base"
+            borderRadius="base"
+            background="base"
+          >
+            <s-stack direction="block" gap="small-200">
+              <s-text type="strong">Source (copy from)</s-text>
+              <s-text>{sourceLabel || "—"}</s-text>
+              <s-text type="strong">Destination (copy to)</s-text>
+              <s-text>{destinationLabel || "—"}</s-text>
+            </s-stack>
+          </s-box>
 
           <installPair.Form
             method="post"
             action="/api/connections/install-pair"
           >
+            <input type="hidden" name="currentRole" value={currentRole} />
             <s-stack direction="block" gap="base">
               <s-text-field
-                name="sourceShopDomain"
-                label="Source store domain"
-                placeholder="source-store.myshopify.com"
+                name="otherShopDomain"
+                label={
+                  currentRole === "DESTINATION"
+                    ? "Source store domain"
+                    : "Destination store domain"
+                }
+                placeholder="other-store.myshopify.com"
                 value={otherShop}
                 onChange={(e) => setOtherShop(e.currentTarget.value)}
               ></s-text-field>
+
+              {otherHandle && (
+                <s-paragraph>
+                  <s-link href={otherInstallHref} target="_blank">
+                    Install Duplify on {otherHandle}.myshopify.com
+                  </s-link>
+                </s-paragraph>
+              )}
+
               {installPair.data && !installPair.data.ok && (
                 <s-banner tone="critical" heading="Couldn't connect">
                   <s-paragraph>{installPair.data.error}</s-paragraph>
                   {"needsInstall" in installPair.data &&
                     installPair.data.needsInstall && (
                       <s-paragraph>
-                        <s-link href={sourceInstallHref} target="_blank">
-                          Install Duplify on source store
+                        <s-link href={otherInstallHref} target="_blank">
+                          Install Duplify on the other store
                         </s-link>
                       </s-paragraph>
                     )}
                 </s-banner>
               )}
               {installPair.data?.ok && (
-                <s-banner tone="success" heading="Source store connected" />
+                <s-banner tone="success" heading="Stores connected" />
               )}
+
               <s-button
                 type="submit"
                 variant="primary"
                 {...(isPairing ? { loading: true } : {})}
               >
-                Connect source store
+                Connect stores
               </s-button>
             </s-stack>
           </installPair.Form>
@@ -112,8 +164,8 @@ export default function ConnectStores() {
       <s-section heading="Connected stores">
         {connections.length === 0 ? (
           <EmptyState
-            heading="No source store yet"
-            message="Connect a source store to start importing."
+            heading="No stores connected yet"
+            message="Choose source and destination, then connect."
           />
         ) : (
           <s-stack direction="block" gap="base">

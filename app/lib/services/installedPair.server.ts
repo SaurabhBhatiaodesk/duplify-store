@@ -3,21 +3,23 @@ import { isValidShopDomain } from "../shopify/shop-domain";
 
 export type InstallPairResult =
   | { ok: true }
-  | { ok: false; error: string; needsInstall?: boolean };
+  | { ok: false; error: string; needsInstall?: boolean; installShopDomain?: string };
 
 /**
  * Pair two shops that already installed Duplify Store.
- * Each install stores an offline token via afterAuth — no extra OAuth or
- * custom-app token is required.
+ * The other shop must have opened the app at least once so afterAuth saved
+ * its offline token.
  */
 export async function connectViaInstalledApp(params: {
   ownerShopId: string;
-  /** Domain of the store to copy FROM */
-  sourceShopDomain: string;
+  /** Domain of the OTHER store (not the embedded one) */
+  otherShopDomain: string;
+  /** Is the embedded store the destination (import into here) or source (export from here)? */
+  currentRole: "DESTINATION" | "SOURCE";
 }): Promise<InstallPairResult> {
-  const sourceDomain = params.sourceShopDomain.trim().toLowerCase();
+  const otherDomain = params.otherShopDomain.trim().toLowerCase();
 
-  if (!isValidShopDomain(sourceDomain)) {
+  if (!isValidShopDomain(otherDomain)) {
     return {
       ok: false,
       error: "Enter a valid shop domain, e.g. your-store.myshopify.com",
@@ -30,42 +32,47 @@ export async function connectViaInstalledApp(params: {
   if (!ownerShop) {
     return { ok: false, error: "Current shop is not fully registered yet" };
   }
-  if (sourceDomain === ownerShop.shopDomain) {
+  if (otherDomain === ownerShop.shopDomain) {
     return {
       ok: false,
       error: "Source and destination stores must be different shops",
     };
   }
 
-  const sourceShop = await db.shop.findUnique({
-    where: { shopDomain: sourceDomain },
+  const otherShop = await db.shop.findUnique({
+    where: { shopDomain: otherDomain },
   });
 
   if (
-    !sourceShop ||
-    !sourceShop.isActive ||
-    !sourceShop.accessTokenEncrypted ||
-    sourceShop.uninstalledAt
+    !otherShop ||
+    !otherShop.isActive ||
+    !otherShop.accessTokenEncrypted ||
+    otherShop.uninstalledAt
   ) {
     return {
       ok: false,
       needsInstall: true,
-      error: `Install Duplify Store on ${sourceDomain} first (open the app once while logged into that store). Then come back here and connect.`,
+      installShopDomain: otherDomain,
+      error: `Install Duplify Store on ${otherDomain} first, open the app once, then come back and connect.`,
     };
   }
 
-  // Destination is the shop currently using the embedded app.
+  const sourceShopId =
+    params.currentRole === "DESTINATION" ? otherShop.id : ownerShop.id;
+  const destinationShopId =
+    params.currentRole === "DESTINATION" ? ownerShop.id : otherShop.id;
+
   await db.storeConnection.upsert({
     where: {
       sourceShopId_destinationShopId: {
-        sourceShopId: sourceShop.id,
-        destinationShopId: ownerShop.id,
+        sourceShopId,
+        destinationShopId,
       },
     },
     create: {
       ownerShopId: ownerShop.id,
-      sourceShopId: sourceShop.id,
-      destinationShopId: ownerShop.id,
+      sourceShopId,
+      destinationShopId,
       status: "READY",
     },
     update: {

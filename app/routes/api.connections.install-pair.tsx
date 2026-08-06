@@ -10,10 +10,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   });
 
   const form = await request.formData();
-  const sourceShopDomain = String(form.get("sourceShopDomain") ?? "");
+  const otherShopDomain = String(
+    form.get("otherShopDomain") ?? form.get("sourceShopDomain") ?? "",
+  );
+  const currentRoleRaw = String(form.get("currentRole") ?? "DESTINATION");
+  const currentRole =
+    currentRoleRaw === "SOURCE" ? "SOURCE" : "DESTINATION";
 
   return connectViaInstalledApp({
     ownerShopId: shop.id,
-    sourceShopDomain,
+    otherShopDomain,
+    currentRole,
   });
 };
