@@ -4,6 +4,7 @@ import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { markItemsForRetry, resumeMigration } from "../lib/services/orchestrator.service";
 import { migrationJobForShopWhere } from "../lib/services/storeConnection.service";
+import { enqueueOrRunInline } from "../lib/queue/enqueueOrRun.server";
 
 export const loader = async ({ params }: LoaderFunctionArgs) => {
   return redirect(`/app/migrations/${params.id}/progress`);
@@ -23,13 +24,14 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const retriedCount = await markItemsForRetry(job.id);
   if (retriedCount > 0) {
     await db.migrationJob.update({ where: { id: job.id }, data: { status: "QUEUED" } });
-    try {
-      const { migrationQueue } = await import("../lib/queue/queues");
-      await migrationQueue.add("resume", { migrationJobId: job.id, mode: "resume" });
-    } catch (error) {
-      console.warn("Migration queue unavailable; resuming migration inline", error);
-      await resumeMigration(job.id);
-    }
+    const { migrationQueue } = await import("../lib/queue/queues");
+    await enqueueOrRunInline({
+      queue: migrationQueue,
+      jobName: "resume",
+      data: { migrationJobId: job.id, mode: "resume" as const },
+      runInline: () => resumeMigration(job.id),
+      label: "migration-retry",
+    });
   }
 
   return redirect(`/app/migrations/${job.id}/progress`);

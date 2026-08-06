@@ -4,6 +4,7 @@ import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { runScan } from "../lib/services/scan.service";
 import { migrationJobForShopWhere } from "../lib/services/storeConnection.service";
+import { enqueueOrRunInline } from "../lib/queue/enqueueOrRun.server";
 
 export const loader = async ({ params }: LoaderFunctionArgs) => {
   return redirect(`/app/migrations/${params.id}/scan`);
@@ -22,7 +23,9 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return redirect("/app/migrations");
   }
 
-  if (!["DRAFT", "SCANNED", "FAILED"].includes(job.status)) {
+  // Allow re-kick from SCANNING so merchants can recover stuck scans when
+  // the queue had no worker connected.
+  if (!["DRAFT", "SCANNED", "FAILED", "SCANNING"].includes(job.status)) {
     return redirect(`/app/migrations/${job.id}/scan`);
   }
 
@@ -31,13 +34,14 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     data: { status: "SCANNING", currentStage: null },
   });
 
-  try {
-    const { scanQueue } = await import("../lib/queue/queues");
-    await scanQueue.add("scan", { migrationJobId: job.id });
-  } catch (error) {
-    console.warn("Scan queue unavailable; running scan inline", error);
-    await runScan(job.id);
-  }
+  const { scanQueue } = await import("../lib/queue/queues");
+  await enqueueOrRunInline({
+    queue: scanQueue,
+    jobName: "scan",
+    data: { migrationJobId: job.id },
+    runInline: () => runScan(job.id),
+    label: "scan",
+  });
 
   return redirect(`/app/migrations/${job.id}/scan`);
 };

@@ -10,6 +10,7 @@ import {
   needsPermissionRescan,
 } from "../lib/services/permissionStatus.server";
 import { migrationJobForShopWhere } from "../lib/services/storeConnection.service";
+import { enqueueOrRunInline } from "../lib/queue/enqueueOrRun.server";
 
 export const loader = async ({ params }: LoaderFunctionArgs) => {
   return redirect(`/app/migrations/${params.id}/scan`);
@@ -69,16 +70,14 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     where: { id: job.id },
     data: { status: "QUEUED" },
   });
-  try {
-    const { migrationQueue } = await import("../lib/queue/queues");
-    await migrationQueue.add("run", { migrationJobId: job.id, mode: "start" });
-  } catch (error) {
-    console.warn(
-      "Migration queue unavailable; running migration inline",
-      error,
-    );
-    await startMigration(job.id);
-  }
+  const { migrationQueue } = await import("../lib/queue/queues");
+  await enqueueOrRunInline({
+    queue: migrationQueue,
+    jobName: "run",
+    data: { migrationJobId: job.id, mode: "start" as const },
+    runInline: () => startMigration(job.id),
+    label: "migration-start",
+  });
 
   return redirect(`/app/migrations/${job.id}/progress`);
 };

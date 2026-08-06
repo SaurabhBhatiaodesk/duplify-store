@@ -14,6 +14,9 @@ import {
 } from "../lib/services/permissionStatus.server";
 import { migrationJobForShopWhere } from "../lib/services/storeConnection.service";
 
+// Recover scans that were queued while no worker was online.
+const recoveringScans = new Set<string>();
+
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = await db.shop.findUniqueOrThrow({
@@ -28,6 +31,18 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   });
   if (!job) {
     throw redirect("/app/migrations");
+  }
+
+  if (job.status === "SCANNING" && !recoveringScans.has(job.id)) {
+    recoveringScans.add(job.id);
+    void import("../lib/services/scan.service")
+      .then(({ runScan }) => runScan(job.id))
+      .catch((error) => {
+        console.error(`[scan-recover] Inline scan failed for ${job.id}`, error);
+      })
+      .finally(() => {
+        recoveringScans.delete(job.id);
+      });
   }
 
   const [failureLogs, failedGroups] =
