@@ -428,6 +428,7 @@ export default function Overview() {
   const themesFetcher = useFetcher<{
     themes: SourceTheme[];
     missingScopes?: string[];
+    error?: string;
   }>();
 
   useEffect(() => {
@@ -572,15 +573,23 @@ export default function Overview() {
                   name="themeSourceId"
                   label="Which theme to export"
                   details={
-                    themesFetcher.state === "loading"
-                      ? "Loading themes…"
-                      : undefined
+                    themesFetcher.state === "loading" ||
+                    themesFetcher.state === "submitting"
+                      ? "Loading themes from source store…"
+                      : themesFetcher.data?.missingScopes?.length
+                        ? "Source store needs theme access — open Duplify once on the source store, then refresh."
+                        : themesFetcher.data?.error
+                          ? themesFetcher.data.error
+                          : themesFetcher.data &&
+                              (themesFetcher.data.themes?.length ?? 0) === 0
+                            ? "No themes found on the source store."
+                            : "Leave as live theme, or pick another source theme."
                   }
                   value={themeSourceId}
                   onChange={(e) => setThemeSourceId(e.currentTarget.value)}
                 >
-                  <s-option value="" disabled>
-                    Select theme
+                  <s-option value="">
+                    Live / published theme (default)
                   </s-option>
                   {(themesFetcher.data?.themes ?? []).map((t) => (
                     <s-option key={t.id} value={t.id}>
