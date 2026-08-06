@@ -157,6 +157,17 @@ export function shopCanMigrate(grantedScope: string): boolean {
   );
 }
 
+/** App is installed and has an offline token — even if scope string is stale. */
+export function shopIsConnected(shop: {
+  isActive: boolean;
+  accessTokenEncrypted: string | null | undefined;
+  uninstalledAt?: Date | null;
+}): boolean {
+  return Boolean(
+    shop.isActive && shop.accessTokenEncrypted && !shop.uninstalledAt,
+  );
+}
+
 export function missingScopes(
   resourceType: string,
   grantedScope: string,

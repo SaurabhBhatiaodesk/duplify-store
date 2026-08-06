@@ -1,5 +1,7 @@
 import db from "../../db.server";
 import { encryptToken } from "../crypto/token-cipher";
+import { createAdminClient } from "../shopify/admin-client";
+import { shopCanMigrate } from "../shopify/scopes";
 
 // Ensures the currently-embedded shop has a `Shop` row. Normally this is
 // created by the `afterAuth` hook in shopify.server.ts the moment OAuth
@@ -42,6 +44,57 @@ export async function syncEmbeddedShopFromSession(session: {
       uninstalledAt: null,
     },
   });
+}
+
+/**
+ * If a paired shop has a token but an empty/stale scope string (common after
+ * pairing), refresh scopes from Shopify so Overview stops saying
+ * "needs Duplify installed".
+ */
+export async function refreshShopScopesIfStale(shop: {
+  id: string;
+  shopDomain: string;
+  scope: string;
+  accessTokenEncrypted: string;
+  isActive: boolean;
+  uninstalledAt: Date | null;
+}): Promise<string> {
+  if (!shop.isActive || shop.uninstalledAt || !shop.accessTokenEncrypted) {
+    return shop.scope;
+  }
+  if (shopCanMigrate(shop.scope)) return shop.scope;
+
+  try {
+    const admin = createAdminClient(shop);
+    const result = await admin.graphql<{
+      currentAppInstallation: {
+        accessScopes: Array<{ handle: string }>;
+      };
+    }>(
+      `#graphql
+        query duplifyCurrentAccessScopes {
+          currentAppInstallation {
+            accessScopes { handle }
+          }
+        }
+      `,
+      undefined,
+      2,
+    );
+    const liveScope = result.currentAppInstallation.accessScopes
+      .map((scope) => scope.handle)
+      .filter(Boolean)
+      .join(",");
+    if (!liveScope) return shop.scope;
+
+    await db.shop.update({
+      where: { id: shop.id },
+      data: { scope: liveScope, isActive: true, uninstalledAt: null },
+    });
+    return liveScope;
+  } catch {
+    return shop.scope;
+  }
 }
 
 export async function listConnectionsForOwner(ownerShopId: string) {

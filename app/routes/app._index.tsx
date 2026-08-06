@@ -10,10 +10,14 @@ import {
 } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { listConnectionsForOwner } from "../lib/services/storeConnection.service";
+import { listConnectionsForOwner, refreshShopScopesIfStale } from "../lib/services/storeConnection.service";
 import { createMigrationJob } from "../lib/services/migrationJob.service";
 import { countLiveMissingPermissions } from "../lib/services/permissionStatus.server";
-import { missingRequestedScopes, shopCanMigrate } from "../lib/shopify/scopes";
+import {
+  missingRequestedScopes,
+  shopCanMigrate,
+  shopIsConnected,
+} from "../lib/shopify/scopes";
 import type { ConflictStrategy } from "../lib/services/types";
 import { StatCard } from "../components/dashboard/StatCard";
 import { StatusBadge } from "../components/dashboard/StatusBadge";
@@ -37,6 +41,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
 
   const connections = await listConnectionsForOwner(shop.id);
+
+  // Heal stale/empty scope strings on paired shops (token exists, scope blank)
+  // so Overview does not keep saying "Source store needs Duplify installed".
+  await Promise.all(
+    connections.flatMap((connection) => [
+      refreshShopScopesIfStale(connection.sourceShop),
+      refreshShopScopesIfStale(connection.destinationShop),
+    ]),
+  );
+  const refreshedConnections = await listConnectionsForOwner(shop.id);
 
   const shopConnectionAccess = {
     OR: [
@@ -73,33 +87,28 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   return {
     currentShopDomain: session.shop,
-    connections: connections.map((c) => ({
-      id: c.id,
-      source: c.sourceShop.shopDomain,
-      destination: c.destinationShop.shopDomain,
-      status: c.status,
-      sourceInstalled: Boolean(
-        c.sourceShop.isActive &&
-          c.sourceShop.accessTokenEncrypted &&
-          !c.sourceShop.uninstalledAt &&
-          shopCanMigrate(c.sourceShop.scope),
-      ),
-      destinationInstalled: Boolean(
-        c.destinationShop.isActive &&
-          c.destinationShop.accessTokenEncrypted &&
-          !c.destinationShop.uninstalledAt &&
-          shopCanMigrate(c.destinationShop.scope),
-      ),
-      // Only surface scopes that still block work after write→read inference.
-      // Empty when the shop is migration-ready so Overview never asks for
-      // manual re-approval after a normal install.
-      sourceMissingScopes: shopCanMigrate(c.sourceShop.scope)
-        ? []
-        : missingRequestedScopes(c.sourceShop.scope),
-      destinationMissingScopes: shopCanMigrate(c.destinationShop.scope)
-        ? []
-        : missingRequestedScopes(c.destinationShop.scope),
-    })),
+    connections: refreshedConnections.map((c) => {
+      const sourceConnected = shopIsConnected(c.sourceShop);
+      const destinationConnected = shopIsConnected(c.destinationShop);
+      return {
+        id: c.id,
+        source: c.sourceShop.shopDomain,
+        destination: c.destinationShop.shopDomain,
+        status: c.status,
+        // Token present = installed. Do not require a perfect scope string.
+        sourceInstalled: sourceConnected,
+        destinationInstalled: destinationConnected,
+        // Connected shops should not block the merchant with permission spam.
+        sourceMissingScopes:
+          sourceConnected || shopCanMigrate(c.sourceShop.scope)
+            ? []
+            : missingRequestedScopes(c.sourceShop.scope),
+        destinationMissingScopes:
+          destinationConnected || shopCanMigrate(c.destinationShop.scope)
+            ? []
+            : missingRequestedScopes(c.destinationShop.scope),
+      };
+    }),
     jobs: jobs.map((j) => ({
       id: j.id,
       type: j.type,
@@ -293,15 +302,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { error: "Choose a valid connected store pair." };
   }
 
-  // Only block when a store never finished install/OAuth. Do not send
-  // merchants through a second manual permission screen after a normal install.
-  const sourceReady = shopCanMigrate(connection.sourceShop.scope);
-  const destinationReady = shopCanMigrate(connection.destinationShop.scope);
-  if (!sourceReady || !destinationReady) {
+  // Token on both sides means install/OAuth already happened — do not bounce
+  // merchants into a second permission flow because of a stale scope string.
+  if (
+    !shopIsConnected(connection.sourceShop) ||
+    !shopIsConnected(connection.destinationShop)
+  ) {
     return redirect(
       `/app/connect?permissions=missing&connectionId=${storeConnectionId}`,
     );
   }
+
+  await Promise.all([
+    refreshShopScopesIfStale(connection.sourceShop),
+    refreshShopScopesIfStale(connection.destinationShop),
+  ]);
 
   const conflictStrategyMap: Record<string, string> = Object.fromEntries(
     selectedResources.map((r) => [r, conflictStrategy]),
