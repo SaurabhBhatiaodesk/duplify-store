@@ -4,6 +4,7 @@ import {
   missingReadScopes,
   missingRequestedScopes,
   missingScopes,
+  shopCanMigrate,
 } from "../shopify/scopes";
 import {
   getMigrationJob,
@@ -85,13 +86,17 @@ export async function runScan(migrationJobId: string): Promise<void> {
     const missingAppPermissions = [
       {
         resourceType: "app permissions",
-        missing: missingRequestedScopes(sourceScope),
+        missing: shopCanMigrate(sourceScope)
+          ? []
+          : missingRequestedScopes(sourceScope),
         shopRole: "source" as const,
         shopDomain: sourceShop.shopDomain,
       },
       {
         resourceType: "app permissions",
-        missing: missingRequestedScopes(destScope),
+        missing: shopCanMigrate(destScope)
+          ? []
+          : missingRequestedScopes(destScope),
         shopRole: "destination" as const,
         shopDomain: destinationShop.shopDomain,
       },
@@ -99,7 +104,7 @@ export async function runScan(migrationJobId: string): Promise<void> {
 
     const selectedResourceTypes = resourceTypesForSelections(resources);
     const missingSourcePermissions =
-      missingAppPermissions.length > 0
+      missingAppPermissions.length > 0 || shopCanMigrate(sourceScope)
         ? []
         : selectedResourceTypes
             .map((resourceType) => ({
@@ -111,7 +116,7 @@ export async function runScan(migrationJobId: string): Promise<void> {
             .filter((p) => p.missing.length > 0);
 
     const missingDestinationPermissions =
-      missingAppPermissions.length > 0
+      missingAppPermissions.length > 0 || shopCanMigrate(destScope)
         ? []
         : selectedResourceTypes
             .map((resourceType) => ({

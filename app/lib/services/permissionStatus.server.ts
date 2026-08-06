@@ -3,6 +3,7 @@ import {
   missingReadScopes,
   missingRequestedScopes,
   missingScopes,
+  shopCanMigrate,
 } from "../shopify/scopes";
 
 export interface PermissionRequirement {
@@ -28,13 +29,17 @@ export function liveMissingPermissions(
   return [
     ...resourceTypes.map((resourceType) => ({
       resourceType,
-      missing: missingReadScopes(resourceType, stores.sourceScope),
+      missing: shopCanMigrate(stores.sourceScope)
+        ? []
+        : missingReadScopes(resourceType, stores.sourceScope),
       shopRole: "source" as const,
       shopDomain: stores.sourceShopDomain,
     })),
     ...resourceTypes.map((resourceType) => ({
       resourceType,
-      missing: missingScopes(resourceType, stores.destinationScope),
+      missing: shopCanMigrate(stores.destinationScope)
+        ? []
+        : missingScopes(resourceType, stores.destinationScope),
       shopRole: "destination" as const,
       shopDomain: stores.destinationShopDomain,
     })),
@@ -47,13 +52,17 @@ export function liveMissingAppPermissions(
   return [
     {
       resourceType: "app permissions",
-      missing: missingRequestedScopes(stores.sourceScope),
+      missing: shopCanMigrate(stores.sourceScope)
+        ? []
+        : missingRequestedScopes(stores.sourceScope),
       shopRole: "source" as const,
       shopDomain: stores.sourceShopDomain,
     },
     {
       resourceType: "app permissions",
-      missing: missingRequestedScopes(stores.destinationScope),
+      missing: shopCanMigrate(stores.destinationScope)
+        ? []
+        : missingRequestedScopes(stores.destinationScope),
       shopRole: "destination" as const,
       shopDomain: stores.destinationShopDomain,
     },

@@ -117,6 +117,17 @@ export function parseGrantedScopes(grantedScope: string): Set<string> {
     }
   }
 
+  // Inventory / product installs almost always include location access; Shopify
+  // often omits read_locations from the compressed scope string.
+  if (
+    granted.has("write_inventory") ||
+    granted.has("read_inventory") ||
+    granted.has("write_products") ||
+    granted.has("read_products")
+  ) {
+    granted.add("read_locations");
+  }
+
   return granted;
 }
 
@@ -126,6 +137,23 @@ export function missingRequestedScopes(grantedScope: string): string[] {
   // cannot approve them from inside the app until Shopify Partner approves.
   return REQUESTED_SCOPES.filter(
     (scope) => !granted.has(scope) && isRequestableScope(scope),
+  );
+}
+
+/**
+ * True when the shop finished OAuth with real migration access.
+ * Used to avoid forcing clients through manual "Grant permissions" flows —
+ * install already requested the full published scope set.
+ */
+export function shopCanMigrate(grantedScope: string): boolean {
+  const granted = parseGrantedScopes(grantedScope);
+  if (granted.size === 0) return false;
+  return (
+    granted.has("write_products") ||
+    granted.has("read_products") ||
+    granted.has("write_customers") ||
+    granted.has("write_content") ||
+    granted.has("write_themes")
   );
 }
 

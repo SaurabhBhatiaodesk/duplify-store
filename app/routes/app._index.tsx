@@ -13,7 +13,7 @@ import db from "../db.server";
 import { listConnectionsForOwner } from "../lib/services/storeConnection.service";
 import { createMigrationJob } from "../lib/services/migrationJob.service";
 import { countLiveMissingPermissions } from "../lib/services/permissionStatus.server";
-import { missingRequestedScopes } from "../lib/shopify/scopes";
+import { missingRequestedScopes, shopCanMigrate } from "../lib/shopify/scopes";
 import type { ConflictStrategy } from "../lib/services/types";
 import { StatCard } from "../components/dashboard/StatCard";
 import { StatusBadge } from "../components/dashboard/StatusBadge";
@@ -81,15 +81,24 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       sourceInstalled: Boolean(
         c.sourceShop.isActive &&
           c.sourceShop.accessTokenEncrypted &&
-          !c.sourceShop.uninstalledAt,
+          !c.sourceShop.uninstalledAt &&
+          shopCanMigrate(c.sourceShop.scope),
       ),
       destinationInstalled: Boolean(
         c.destinationShop.isActive &&
           c.destinationShop.accessTokenEncrypted &&
-          !c.destinationShop.uninstalledAt,
+          !c.destinationShop.uninstalledAt &&
+          shopCanMigrate(c.destinationShop.scope),
       ),
-      sourceMissingScopes: missingRequestedScopes(c.sourceShop.scope),
-      destinationMissingScopes: missingRequestedScopes(c.destinationShop.scope),
+      // Only surface scopes that still block work after write→read inference.
+      // Empty when the shop is migration-ready so Overview never asks for
+      // manual re-approval after a normal install.
+      sourceMissingScopes: shopCanMigrate(c.sourceShop.scope)
+        ? []
+        : missingRequestedScopes(c.sourceShop.scope),
+      destinationMissingScopes: shopCanMigrate(c.destinationShop.scope)
+        ? []
+        : missingRequestedScopes(c.destinationShop.scope),
     })),
     jobs: jobs.map((j) => ({
       id: j.id,
@@ -284,13 +293,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { error: "Choose a valid connected store pair." };
   }
 
-  const missingSourceScopes = missingRequestedScopes(
-    connection.sourceShop.scope,
-  );
-  const missingDestinationScopes = missingRequestedScopes(
-    connection.destinationShop.scope,
-  );
-  if (missingSourceScopes.length > 0 || missingDestinationScopes.length > 0) {
+  // Only block when a store never finished install/OAuth. Do not send
+  // merchants through a second manual permission screen after a normal install.
+  const sourceReady = shopCanMigrate(connection.sourceShop.scope);
+  const destinationReady = shopCanMigrate(connection.destinationShop.scope);
+  if (!sourceReady || !destinationReady) {
     return redirect(
       `/app/connect?permissions=missing&connectionId=${storeConnectionId}`,
     );
