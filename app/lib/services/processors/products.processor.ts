@@ -283,6 +283,20 @@ async function processProductItem(
     createdVariants: product.variants.edges.map((e) => e.node),
   });
 
+  // ACTIVE products still need an Online Store publication or Channels stays 0.
+  if ((payload.parent.status ?? "DRAFT") === "ACTIVE") {
+    const { publishToOnlineStore } = await import("../../shopify/publications");
+    const published = await publishToOnlineStore(destAdmin, product.id);
+    if (!published.ok) {
+      await logEvent(
+        job.id,
+        "WARN",
+        `Product "${payload.parent.title}" migrated but not published to Online Store: ${published.message ?? "unknown"}`,
+        { sourceId: item.sourceId, destinationId: product.id },
+      );
+    }
+  }
+
   await logEvent(job.id, "INFO", `Migrated product "${payload.parent.title}"`, {
     sourceId: item.sourceId,
     destinationId: product.id,

@@ -105,6 +105,16 @@ export async function runMetaobjectDefinitionsStage(job: MigrationJobWithConnect
       await db.migrationItem.update({ where: { id: item.id }, data: { status: "COMPLETED", destinationId, errorMessage: null } });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (shouldSkipDefinitionCreateError(message)) {
+        await db.migrationItem.update({
+          where: { id: item.id },
+          data: {
+            status: "SKIPPED",
+            errorMessage: skippedDefinitionMessage(message),
+          },
+        });
+        continue;
+      }
       await db.migrationItem.update({ where: { id: item.id }, data: { status: "FAILED", errorMessage: message } });
       await logEvent(job.id, "ERROR", message, { itemId: item.id });
     }

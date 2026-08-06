@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { Form, useFetcher, useLoaderData, useRevalidator } from "react-router";
-import { SaveBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { REQUESTED_SCOPES } from "../lib/shopify/scopes";
@@ -199,16 +198,21 @@ export default function Settings() {
 
   return (
     <s-page heading="Settings" inlineSize="large">
-      <SaveBar open={isDirty} id="settings-save-bar">
-        <button
+      {isDirty && (
+        <s-button
+          slot="primary-action"
           variant="primary"
           onClick={handleSave}
-          {...(isSaving ? { loading: "" } : {})}
+          {...(isSaving ? { loading: true } : {})}
         >
           Save
-        </button>
-        <button onClick={handleDiscard}>Discard</button>
-      </SaveBar>
+        </s-button>
+      )}
+      {isDirty && (
+        <s-button slot="secondary-actions" onClick={handleDiscard}>
+          Discard
+        </s-button>
+      )}
 
       {fetcher.data?.saved && !isDirty && !savedBannerDismissed && (
         <s-banner tone="success" heading="Settings saved">

@@ -5,6 +5,7 @@ export function isReservedDefinitionError(message: string): boolean {
 export function isAccessDeniedDefinitionError(message: string): boolean {
   return (
     /access denied for metafielddefinitioncreate/i.test(message) ||
+    /access denied for metaobjectdefinitioncreate/i.test(message) ||
     /api client to have access to the namespace/i.test(message)
   );
 }

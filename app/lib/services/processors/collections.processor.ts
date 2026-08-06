@@ -179,6 +179,17 @@ async function processCollectionItem(
         sourceHandle: collection.handle,
         destinationHandle: outcome.collection.handle,
       });
+
+      const { publishToOnlineStore } = await import("../../shopify/publications");
+      const published = await publishToOnlineStore(destAdmin, destinationId);
+      if (!published.ok) {
+        await logEvent(
+          job.id,
+          "WARN",
+          `Collection "${collection.title}" migrated but not published: ${published.message ?? "unknown"}`,
+          { sourceId: item.sourceId, destinationId },
+        );
+      }
     } catch (error) {
       await fail(job.id, item.id, errMsg(error));
       return;
