@@ -1,5 +1,5 @@
 import db from "../../db.server";
-import { isValidShopDomain } from "../shopify/shop-domain";
+import { isValidShopDomain, normalizeShopDomain } from "../shopify/shop-domain";
 
 export type InstallPairResult =
   | { ok: true }
@@ -17,7 +17,7 @@ export async function connectViaInstalledApp(params: {
   /** Is the embedded store the destination (import into here) or source (export from here)? */
   currentRole: "DESTINATION" | "SOURCE";
 }): Promise<InstallPairResult> {
-  const otherDomain = params.otherShopDomain.trim().toLowerCase();
+  const otherDomain = normalizeShopDomain(params.otherShopDomain);
 
   if (!isValidShopDomain(otherDomain)) {
     return {
