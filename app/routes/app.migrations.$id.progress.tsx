@@ -335,28 +335,21 @@ export default function MigrationProgress() {
               gridTemplateColumns="repeat(4, minmax(140px, 1fr))"
               gap="base"
             >
-              <StatCard
-                label="Total records"
-                value={job.totalRecords}
-                icon="package"
-              />
+              <StatCard label="Total records" value={job.totalRecords} />
               <StatCard
                 label="Completed"
                 value={job.completedRecords}
                 tone="success"
-                icon="check-circle"
               />
               <StatCard
                 label="Failed"
                 value={job.failedRecords}
                 tone={job.failedRecords > 0 ? "critical" : "neutral"}
-                icon="alert-triangle"
               />
               <StatCard
                 label="Skipped"
                 value={job.skippedRecords}
                 tone="warning"
-                icon="arrow-right-circle"
               />
             </s-grid>
 

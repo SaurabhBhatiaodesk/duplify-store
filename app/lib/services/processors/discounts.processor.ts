@@ -2,7 +2,7 @@ import db from "../../../db.server";
 import { createAdminClient } from "../../shopify/admin-client";
 import { DISCOUNT_CODE_NODES_QUERY } from "../../shopify/queries/discounts";
 import { DISCOUNT_CODE_BASIC_CREATE_MUTATION, type DiscountCodeBasicInput } from "../../shopify/mutations/discounts";
-import { getMapping, saveMapping } from "../idMapping.service";
+import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { DiscountBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
@@ -98,7 +98,7 @@ export async function runDiscountsStage(job: MigrationJobWithConnection): Promis
     const discount = item.payload as unknown as DiscountBulkPayload;
     await db.migrationItem.update({ where: { id: item.id }, data: { status: "PROCESSING", attempt: item.attempt + 1 } });
 
-    const alreadyMapped = await getMapping(job.storeConnectionId, "discount", item.sourceId);
+    const alreadyMapped = await getLiveMapping(destAdmin, job.storeConnectionId, "discount", item.sourceId);
     if (alreadyMapped) {
       await db.migrationItem.update({ where: { id: item.id }, data: { status: "COMPLETED", destinationId: alreadyMapped.destinationId, errorMessage: null } });
       continue;

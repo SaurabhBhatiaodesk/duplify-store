@@ -2,7 +2,7 @@ import db from "../../../db.server";
 import { createAdminClient } from "../../shopify/admin-client";
 import { MENUS_QUERY, MENU_BY_HANDLE_QUERY } from "../../shopify/queries/menus";
 import { MENU_CREATE_MUTATION, type MenuItemCreateInput } from "../../shopify/mutations/menus";
-import { getMapping, getMappingBySourceIdAnyType, saveMapping } from "../idMapping.service";
+import { getLiveMapping, getMappingBySourceIdAnyType, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ConflictStrategy, MenuBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
@@ -73,7 +73,7 @@ export async function runMenusStage(job: MigrationJobWithConnection): Promise<vo
 
     await db.migrationItem.update({ where: { id: item.id }, data: { status: "PROCESSING", attempt: item.attempt + 1 } });
 
-    const alreadyMapped = await getMapping(storeConnectionId, "menu", item.sourceId);
+    const alreadyMapped = await getLiveMapping(destAdmin, storeConnectionId, "menu", item.sourceId);
     if (alreadyMapped) {
       await db.migrationItem.update({ where: { id: item.id }, data: { status: "COMPLETED", destinationId: alreadyMapped.destinationId, errorMessage: null } });
       continue;

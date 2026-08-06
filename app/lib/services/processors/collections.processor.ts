@@ -9,7 +9,7 @@ import {
   type CollectionCreateInput,
   type CollectionUpdateInput,
 } from "../../shopify/mutations/collections";
-import { getMapping, saveMapping } from "../idMapping.service";
+import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { CollectionBulkPayload, ConflictStrategy, ProductBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
@@ -109,7 +109,12 @@ async function processCollectionItem(
     data: { status: "PROCESSING", attempt: item.attempt + 1 },
   });
 
-  const alreadyMapped = await getMapping(storeConnectionId, "collection", item.sourceId);
+  const alreadyMapped = await getLiveMapping(
+    destAdmin,
+    storeConnectionId,
+    "collection",
+    item.sourceId,
+  );
   let destinationId = alreadyMapped?.destinationId ?? null;
 
   if (!destinationId) {

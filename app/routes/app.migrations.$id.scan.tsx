@@ -328,19 +328,16 @@ export default function MigrationScan() {
                 label="Total records"
                 value={totalRecords}
                 tone="info"
-                icon="package"
               />
               <StatCard
                 label="Possible conflicts"
                 value={totalConflicts}
                 tone={totalConflicts > 0 ? "warning" : "success"}
-                icon="alert-diamond"
               />
               <StatCard
                 label="Missing permissions"
                 value={missingPermissionScopeCount}
                 tone={missingPermissions.length > 0 ? "critical" : "success"}
-                icon="lock"
               />
             </s-stack>
           </s-section>

@@ -3,7 +3,7 @@ import { createAdminClient } from "../../shopify/admin-client";
 import { collectGroupedBulkResults, runBulkQuery } from "../../shopify/bulk-operations";
 import { BULK_CUSTOMERS_QUERY, CUSTOMER_BY_EMAIL_QUERY } from "../../shopify/queries/customers";
 import { CUSTOMER_CREATE_MUTATION, type CustomerCreateInput } from "../../shopify/mutations/customers";
-import { getMapping, saveMapping } from "../idMapping.service";
+import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ConflictStrategy, CustomerBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
@@ -87,7 +87,12 @@ async function processCustomerItem(
     data: { status: "PROCESSING", attempt: item.attempt + 1 },
   });
 
-  const alreadyMapped = await getMapping(storeConnectionId, "customer", item.sourceId);
+  const alreadyMapped = await getLiveMapping(
+    destAdmin,
+    storeConnectionId,
+    "customer",
+    item.sourceId,
+  );
   if (alreadyMapped) {
     await db.migrationItem.update({
       where: { id: item.id },

@@ -3,7 +3,7 @@ import { createAdminClient } from "../../shopify/admin-client";
 import { collectGroupedBulkResults, runBulkQuery } from "../../shopify/bulk-operations";
 import { BULK_FILES_QUERY } from "../../shopify/queries/files";
 import { FILE_CREATE_MUTATION, type FileCreateInput } from "../../shopify/mutations/files";
-import { getMapping, saveMapping } from "../idMapping.service";
+import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { FileBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
@@ -80,7 +80,7 @@ export async function runFilesStage(job: MigrationJobWithConnection): Promise<vo
 
     // A prior run may have uploaded this file before its migration item was
     // marked complete. Reuse the connection-scoped mapping to avoid a duplicate.
-    const alreadyMapped = await getMapping(job.storeConnectionId, "file", item.sourceId);
+    const alreadyMapped = await getLiveMapping(destAdmin, job.storeConnectionId, "file", item.sourceId);
     if (alreadyMapped) {
       await db.migrationItem.update({
         where: { id: item.id },

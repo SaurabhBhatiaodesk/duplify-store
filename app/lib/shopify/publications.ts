@@ -1,4 +1,4 @@
-import type { AdminClient } from "../admin-client";
+import type { AdminClient } from "./admin-client";
 
 const PUBLICATIONS_QUERY = `#graphql
   query duplifyPublications {

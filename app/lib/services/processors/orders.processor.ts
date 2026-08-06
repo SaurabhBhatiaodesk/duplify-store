@@ -3,7 +3,7 @@ import { createAdminClient } from "../../shopify/admin-client";
 import { collectGroupedBulkResults, runBulkQuery } from "../../shopify/bulk-operations";
 import { BULK_ORDERS_QUERY } from "../../shopify/queries/orders";
 import { DRAFT_ORDER_CREATE_MUTATION, type DraftOrderInput } from "../../shopify/mutations/orders";
-import { getMapping, saveMapping } from "../idMapping.service";
+import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { OrderBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
@@ -75,7 +75,7 @@ export async function runOrdersStage(job: MigrationJobWithConnection): Promise<v
 
     await db.migrationItem.update({ where: { id: item.id }, data: { status: "PROCESSING", attempt: item.attempt + 1 } });
 
-    const alreadyMapped = await getMapping(storeConnectionId, "order", item.sourceId);
+    const alreadyMapped = await getLiveMapping(destAdmin, storeConnectionId, "order", item.sourceId);
     if (alreadyMapped) {
       await db.migrationItem.update({ where: { id: item.id }, data: { status: "COMPLETED", destinationId: alreadyMapped.destinationId, errorMessage: null } });
       continue;
@@ -83,7 +83,7 @@ export async function runOrdersStage(job: MigrationJobWithConnection): Promise<v
 
     let customerId: string | undefined;
     if (order.customerSourceId) {
-      const mapping = await getMapping(storeConnectionId, "customer", order.customerSourceId);
+      const mapping = await getLiveMapping(destAdmin, storeConnectionId, "customer", order.customerSourceId);
       customerId = mapping?.destinationId;
     }
 
@@ -91,7 +91,7 @@ export async function runOrdersStage(job: MigrationJobWithConnection): Promise<v
     for (const li of order.lineItems) {
       let variantId: string | undefined;
       if (li.productVariantSourceId) {
-        const mapping = await getMapping(storeConnectionId, "variant", li.productVariantSourceId);
+        const mapping = await getLiveMapping(destAdmin, storeConnectionId, "variant", li.productVariantSourceId);
         variantId = mapping?.destinationId;
       }
       lineItems.push(variantId ? { variantId, quantity: li.quantity } : { title: li.title, quantity: li.quantity });

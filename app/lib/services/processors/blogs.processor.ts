@@ -10,7 +10,7 @@ import {
   type BlogCreateInput,
   type BlogUpdateInput,
 } from "../../shopify/mutations/content";
-import { getMapping, saveMapping } from "../idMapping.service";
+import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ArticleBulkPayload, BlogBulkPayload, ConflictStrategy } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
@@ -116,7 +116,8 @@ export async function runBlogsStage(job: MigrationJobWithConnection): Promise<vo
 
     await db.migrationItem.update({ where: { id: item.id }, data: { status: "PROCESSING", attempt: item.attempt + 1 } });
 
-    let destinationBlogId = (await getMapping(storeConnectionId, "blog", item.sourceId))?.destinationId ?? null;
+    let destinationBlogId =
+      (await getLiveMapping(destAdmin, storeConnectionId, "blog", item.sourceId))?.destinationId ?? null;
 
     if (!destinationBlogId) {
       let existingId: string | null = null;
@@ -185,7 +186,9 @@ export async function runBlogsStage(job: MigrationJobWithConnection): Promise<vo
   for (const item of failedArticles) {
     if (await isMigrationCancelled(job.id)) return;
     const article = item.payload as unknown as ArticleBulkPayload;
-    const destinationBlogId = (await getMapping(job.storeConnectionId, "blog", article.blogSourceId))?.destinationId;
+    const destinationBlogId = (
+      await getLiveMapping(destAdmin, job.storeConnectionId, "blog", article.blogSourceId)
+    )?.destinationId;
     if (destinationBlogId) {
       await processArticle(job, article, destinationBlogId, destAdmin, item);
     }
@@ -200,7 +203,7 @@ async function processArticle(
   existingItem?: { id: string; attempt: number },
 ): Promise<void> {
   const storeConnectionId = job.storeConnectionId;
-  const alreadyMapped = await getMapping(storeConnectionId, "article", article.id);
+  const alreadyMapped = await getLiveMapping(destAdmin, storeConnectionId, "article", article.id);
   const item = existingItem ?? await db.migrationItem.findFirst({
     where: {
       migrationJobId: job.id,

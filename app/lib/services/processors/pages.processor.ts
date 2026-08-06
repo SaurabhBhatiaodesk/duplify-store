@@ -8,7 +8,7 @@ import {
   type PageCreateInput,
   type PageUpdateInput,
 } from "../../shopify/mutations/content";
-import { getMapping, saveMapping } from "../idMapping.service";
+import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ConflictStrategy, PageBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
@@ -73,7 +73,12 @@ export async function runPagesStage(job: MigrationJobWithConnection): Promise<vo
 
     await db.migrationItem.update({ where: { id: item.id }, data: { status: "PROCESSING", attempt: item.attempt + 1 } });
 
-    const alreadyMapped = await getMapping(storeConnectionId, "page", item.sourceId);
+    const alreadyMapped = await getLiveMapping(
+      destAdmin,
+      storeConnectionId,
+      "page",
+      item.sourceId,
+    );
     if (alreadyMapped) {
       await db.migrationItem.update({
         where: { id: item.id },

@@ -1,7 +1,7 @@
 ﻿import db from "../../../db.server";
 import { createAdminClient } from "../../shopify/admin-client";
 import { PRODUCT_CREATE_MEDIA_MUTATION } from "../../shopify/mutations/products";
-import { getMapping, saveMapping } from "../idMapping.service";
+import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ProductBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
@@ -76,7 +76,12 @@ export async function runImagesStage(job: MigrationJobWithConnection): Promise<v
       data: { status: "PROCESSING", attempt: item.attempt + 1 },
     });
 
-    const productMapping = await getMapping(job.storeConnectionId, "product", payload.productSourceId);
+    const productMapping = await getLiveMapping(
+      destAdmin,
+      job.storeConnectionId,
+      "product",
+      payload.productSourceId,
+    );
     if (!productMapping) {
       await db.migrationItem.update({
         where: { id: item.id },

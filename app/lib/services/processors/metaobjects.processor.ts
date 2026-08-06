@@ -7,7 +7,7 @@ import {
   type MetaobjectCreateInput,
   type MetaobjectDefinitionCreateInput,
 } from "../../shopify/mutations/metaobjects";
-import { getMapping, getMappingBySourceIdAnyType, saveMapping } from "../idMapping.service";
+import { getLiveMapping, getMappingBySourceIdAnyType, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { MetaobjectDefinitionBulkPayload, MetaobjectEntryBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
@@ -72,7 +72,7 @@ export async function runMetaobjectDefinitionsStage(job: MigrationJobWithConnect
     const def = item.payload as unknown as MetaobjectDefinitionBulkPayload;
     await db.migrationItem.update({ where: { id: item.id }, data: { status: "PROCESSING", attempt: item.attempt + 1 } });
 
-    const alreadyMapped = await getMapping(job.storeConnectionId, "metaobject_definition", item.sourceId);
+    const alreadyMapped = await getLiveMapping(destAdmin, job.storeConnectionId, "metaobject_definition", item.sourceId);
     if (alreadyMapped) {
       await db.migrationItem.update({ where: { id: item.id }, data: { status: "COMPLETED", destinationId: alreadyMapped.destinationId, errorMessage: null } });
       continue;
@@ -190,7 +190,7 @@ export async function runMetaobjectsStage(job: MigrationJobWithConnection): Prom
     const entry = item.payload as unknown as MetaobjectEntryBulkPayload;
     await db.migrationItem.update({ where: { id: item.id }, data: { status: "PROCESSING", attempt: item.attempt + 1 } });
 
-    const alreadyMapped = await getMapping(job.storeConnectionId, "metaobject", item.sourceId);
+    const alreadyMapped = await getLiveMapping(destAdmin, job.storeConnectionId, "metaobject", item.sourceId);
     if (alreadyMapped) {
       await db.migrationItem.update({ where: { id: item.id }, data: { status: "COMPLETED", destinationId: alreadyMapped.destinationId, errorMessage: null } });
       continue;

@@ -2,7 +2,7 @@ import db from "../../../db.server";
 import { createAdminClient } from "../../shopify/admin-client";
 import { METAFIELD_DEFINITIONS_QUERY, METAFIELD_DEFINITION_OWNER_TYPES } from "../../shopify/queries/metafields";
 import { METAFIELD_DEFINITION_CREATE_MUTATION, type MetafieldDefinitionInput } from "../../shopify/mutations/metafields";
-import { getMapping, saveMapping } from "../idMapping.service";
+import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { MetafieldDefinitionBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
@@ -82,7 +82,7 @@ export async function runMetafieldDefinitionsStage(job: MigrationJobWithConnecti
     const def = item.payload as unknown as MetafieldDefinitionBulkPayload;
     await db.migrationItem.update({ where: { id: item.id }, data: { status: "PROCESSING", attempt: item.attempt + 1 } });
 
-    const alreadyMapped = await getMapping(job.storeConnectionId, "metafield_definition", item.sourceId);
+    const alreadyMapped = await getLiveMapping(destAdmin, job.storeConnectionId, "metafield_definition", item.sourceId);
     if (alreadyMapped) {
       await db.migrationItem.update({ where: { id: item.id }, data: { status: "COMPLETED", destinationId: alreadyMapped.destinationId, errorMessage: null } });
       continue;

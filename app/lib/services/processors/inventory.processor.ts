@@ -3,7 +3,7 @@ import { createAdminClient, type AdminClient } from "../../shopify/admin-client"
 import { runBulkQuery, streamBulkResults } from "../../shopify/bulk-operations";
 import { BULK_INVENTORY_QUERY, LOCATIONS_QUERY } from "../../shopify/queries/inventory";
 import { INVENTORY_SET_QUANTITIES_MUTATION, type InventorySetQuantitiesInput } from "../../shopify/mutations/inventory";
-import { getMapping, saveMapping } from "../idMapping.service";
+import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
 
@@ -108,7 +108,12 @@ export async function runInventoryStage(job: MigrationJobWithConnection): Promis
     const payload = item.payload as unknown as InventoryItemPayload;
     await db.migrationItem.update({ where: { id: item.id }, data: { status: "PROCESSING", attempt: item.attempt + 1 } });
 
-    const variantMapping = await getMapping(job.storeConnectionId, "variant", payload.variantSourceId);
+    const variantMapping = await getLiveMapping(
+      destAdmin,
+      job.storeConnectionId,
+      "variant",
+      payload.variantSourceId,
+    );
     if (!variantMapping) {
       await db.migrationItem.update({ where: { id: item.id }, data: { status: "SKIPPED", errorMessage: "Variant was not migrated (skipped or failed)" } });
       continue;
