@@ -1,5 +1,5 @@
-import type { LoaderFunctionArgs } from "react-router";
-import { Form, useLoaderData, useSearchParams } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
+import { Form, redirect, useLoaderData, useSearchParams } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { listConnectionsForOwner } from "../lib/services/storeConnection.service";
@@ -8,7 +8,9 @@ import { EmptyState } from "../components/shared/EmptyState";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const shop = await db.shop.findUniqueOrThrow({ where: { shopDomain: session.shop } });
+  const shop = await db.shop.findUniqueOrThrow({
+    where: { shopDomain: session.shop },
+  });
 
   const connections = await listConnectionsForOwner(shop.id);
   const connectionIds = connections.map((c) => c.id);
@@ -17,23 +19,35 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const resourceType = url.searchParams.get("resourceType") || undefined;
   const connectionId = url.searchParams.get("connectionId") || undefined;
   const search = url.searchParams.get("q") || undefined;
+  const cleared = url.searchParams.get("cleared") === "1";
 
-  const rows = await db.idMapping.findMany({
-    where: {
-      storeConnectionId: connectionId ?? { in: connectionIds },
-      resourceType,
-      OR: search
-        ? [
-            { sourceHandle: { contains: search, mode: "insensitive" } },
-            { destinationHandle: { contains: search, mode: "insensitive" } },
-          ]
-        : undefined,
-    },
-    orderBy: { updatedAt: "desc" },
-    take: 250,
-  });
+  const rows =
+    connectionIds.length === 0
+      ? []
+      : await db.idMapping.findMany({
+          where: {
+            storeConnectionId: connectionId ?? { in: connectionIds },
+            resourceType,
+            OR: search
+              ? [
+                  {
+                    sourceHandle: { contains: search, mode: "insensitive" },
+                  },
+                  {
+                    destinationHandle: {
+                      contains: search,
+                      mode: "insensitive",
+                    },
+                  },
+                ]
+              : undefined,
+          },
+          orderBy: { updatedAt: "desc" },
+          take: 250,
+        });
 
   return {
+    cleared,
     connections: connections.map((c) => ({
       id: c.id,
       label: `${c.sourceShop.shopDomain} → ${c.destinationShop.shopDomain}`,
@@ -50,8 +64,38 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   };
 };
 
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
+  const shop = await db.shop.findUniqueOrThrow({
+    where: { shopDomain: session.shop },
+  });
+  const form = await request.formData();
+  const intent = String(form.get("intent") || "");
+
+  if (intent !== "clear") {
+    return redirect("/app/mappings");
+  }
+
+  const connections = await listConnectionsForOwner(shop.id);
+  const connectionIds = connections.map((c) => c.id);
+  const connectionId = String(form.get("connectionId") || "");
+
+  if (connectionId) {
+    if (!connectionIds.includes(connectionId)) {
+      return redirect("/app/mappings");
+    }
+    await db.idMapping.deleteMany({ where: { storeConnectionId: connectionId } });
+  } else if (connectionIds.length > 0) {
+    await db.idMapping.deleteMany({
+      where: { storeConnectionId: { in: connectionIds } },
+    });
+  }
+
+  return redirect("/app/mappings?cleared=1");
+};
+
 export default function IdMappings() {
-  const { connections, rows } = useLoaderData<typeof loader>();
+  const { connections, rows, cleared } = useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
 
   if (connections.length === 0) {
@@ -70,14 +114,55 @@ export default function IdMappings() {
 
   return (
     <s-page heading="ID mappings" inlineSize="large">
+      {rows.length > 0 && (
+        <Form method="post">
+          <input type="hidden" name="intent" value="clear" />
+          <input
+            type="hidden"
+            name="connectionId"
+            value={searchParams.get("connectionId") ?? ""}
+          />
+          <s-button
+            slot="primary-action"
+            type="submit"
+            variant="primary"
+            tone="critical"
+          >
+            Clear mappings
+          </s-button>
+        </Form>
+      )}
+
+      {cleared && (
+        <s-banner tone="success" heading="ID mappings cleared">
+          Old mapping data was removed. New migrations will create fresh
+          mappings.
+        </s-banner>
+      )}
+
       <s-section heading="Filters">
         <Form method="get">
-          <div style={{ display: "flex", gap: "12px", alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: "12px",
+              alignItems: "flex-end",
+              flexWrap: "wrap",
+            }}
+          >
             <div style={{ flex: "2 1 240px", minWidth: "200px" }}>
-              <s-search-field name="q" label="Search by handle" value={searchParams.get("q") ?? ""}></s-search-field>
+              <s-search-field
+                name="q"
+                label="Search by handle"
+                value={searchParams.get("q") ?? ""}
+              ></s-search-field>
             </div>
             <div style={{ flex: "1 1 180px", minWidth: "160px" }}>
-              <s-select name="resourceType" label="Resource type" value={searchParams.get("resourceType") ?? ""}>
+              <s-select
+                name="resourceType"
+                label="Resource type"
+                value={searchParams.get("resourceType") ?? ""}
+              >
                 <s-option value="">Any resource</s-option>
                 <s-option value="product">Product</s-option>
                 <s-option value="variant">Variant</s-option>
@@ -89,8 +174,12 @@ export default function IdMappings() {
                 <s-option value="article">Article</s-option>
                 <s-option value="file">File</s-option>
                 <s-option value="menu">Menu</s-option>
-                <s-option value="metafield_definition">Metafield definition</s-option>
-                <s-option value="metaobject_definition">Metaobject definition</s-option>
+                <s-option value="metafield_definition">
+                  Metafield definition
+                </s-option>
+                <s-option value="metaobject_definition">
+                  Metaobject definition
+                </s-option>
                 <s-option value="metaobject">Metaobject</s-option>
                 <s-option value="discount">Discount</s-option>
                 <s-option value="order">Order</s-option>
@@ -98,7 +187,11 @@ export default function IdMappings() {
               </s-select>
             </div>
             <div style={{ flex: "1 1 220px", minWidth: "200px" }}>
-              <s-select name="connectionId" label="Store pair" value={searchParams.get("connectionId") ?? ""}>
+              <s-select
+                name="connectionId"
+                label="Store pair"
+                value={searchParams.get("connectionId") ?? ""}
+              >
                 <s-option value="">All store pairs</s-option>
                 {connections.map((c) => (
                   <s-option key={c.id} value={c.id}>
@@ -113,7 +206,11 @@ export default function IdMappings() {
       </s-section>
 
       <s-section heading="Mappings">
-        <MappingsTable rows={rows} />
+        {rows.length === 0 ? (
+          <s-paragraph>No ID mappings yet.</s-paragraph>
+        ) : (
+          <MappingsTable rows={rows} />
+        )}
       </s-section>
     </s-page>
   );
