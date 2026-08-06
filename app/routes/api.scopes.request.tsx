@@ -2,19 +2,20 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { redirect } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { isRequestableScope } from "../lib/shopify/scopes";
+import {
+  isRequestableScope,
+  missingRequestedScopes,
+} from "../lib/shopify/scopes";
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
-  // If someone lands here via a full-page navigation (old broken button),
-  // authenticate then bounce back into the embedded app shell.
-  await authenticate.admin(request);
-  return redirect("/app");
-};
+// Never authenticate on GET — a full-page hit here (old button / broken
+// redirect) must soft-bounce into the app, not show Shopify's 401 page.
+export const loader = async () => redirect("/app/settings");
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, scopes } = await authenticate.admin(request);
   const form = await request.formData();
-  const scopesToRequest = Array.from(
+
+  const requested = Array.from(
     new Set(
       form
         .getAll("scopes")
@@ -24,12 +25,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         .filter(isRequestableScope),
     ),
   );
-  const returnTo = String(form.get("returnTo") || "/app");
 
-  // Throws an App Bridge redirect to Shopify's install/consent screen when
-  // scopes are not yet granted. Do not catch — React Router + App Bridge
-  // must see that redirect response.
-  await scopes.request(scopesToRequest);
+  // Only ask Shopify for scopes this shop does not already have (write_*
+  // already covers matching read_*). Avoids useless consent loops.
+  const stillMissing = missingRequestedScopes(session.scope ?? "");
+  const scopesToRequest =
+    requested.length > 0
+      ? requested.filter((scope) => stillMissing.includes(scope))
+      : stillMissing;
+
+  const returnTo = String(form.get("returnTo") || "/app/settings");
+
+  if (scopesToRequest.length > 0) {
+    // Throws an App Bridge redirect to Shopify's consent screen.
+    await scopes.request(scopesToRequest);
+  }
 
   const scopeDetails = await scopes.query();
   await db.shop.update({
@@ -37,5 +47,5 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     data: { scope: scopeDetails.granted.join(",") },
   });
 
-  return redirect(returnTo.startsWith("/app") ? returnTo : "/app");
+  return redirect(returnTo.startsWith("/app") ? returnTo : "/app/settings");
 };

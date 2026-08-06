@@ -1,15 +1,39 @@
 import { useEffect, useState } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { useFetcher, useLoaderData, useRevalidator } from "react-router";
+import { Form, useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { REQUESTED_SCOPES, isRequestableScope } from "../lib/shopify/scopes";
+import {
+  REQUESTED_SCOPES,
+  isRequestableScope,
+  missingRequestedScopes,
+  parseGrantedScopes,
+} from "../lib/shopify/scopes";
+
+/** Scopes we show merchants — protected Partner-only scopes stay out. */
+const DISPLAY_SCOPES = REQUESTED_SCOPES.filter(isRequestableScope);
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, scopes } = await authenticate.admin(request);
   const shop = await db.shop.findUniqueOrThrow({
     where: { shopDomain: session.shop },
   });
+
+  // Keep DB scopes fresh from Shopify so Settings never lies about access.
+  let liveScope = shop.scope;
+  try {
+    const scopeDetails = await scopes.query();
+    liveScope = scopeDetails.granted.join(",");
+    if (liveScope !== shop.scope) {
+      await db.shop.update({
+        where: { id: shop.id },
+        data: { scope: liveScope },
+      });
+    }
+  } catch {
+    // Fall back to stored scope if query fails.
+  }
+
   const setting = await db.appSetting.findUnique({
     where: { shopId: shop.id },
   });
@@ -49,16 +73,23 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const existing = stores.get(connectedShop.shopDomain);
     if (existing) {
       existing.roles.add(role);
+      if (connectedShop.shopDomain === session.shop) {
+        existing.scope = liveScope;
+      }
       return;
     }
     stores.set(connectedShop.shopDomain, {
-      ...connectedShop,
+      shopDomain: connectedShop.shopDomain,
+      scope:
+        connectedShop.shopDomain === session.shop
+          ? liveScope
+          : connectedShop.scope,
       roles: new Set([role]),
       isCurrent: connectedShop.shopDomain === session.shop,
     });
   }
 
-  addStore(shop, "Destination");
+  addStore({ shopDomain: shop.shopDomain, scope: liveScope }, "Destination");
   for (const connection of connections) {
     addStore(connection.sourceShop, "Source");
     addStore(connection.destinationShop, "Destination");
@@ -66,18 +97,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   return {
     shopDomain: shop.shopDomain,
-    scope: shop.scope,
+    scope: liveScope,
     permissionStores: Array.from(stores.values()).map((store) => {
-      const granted = new Set(parseScopes(store.scope));
-      const missingScopes = REQUESTED_SCOPES.filter(
-        (scope) => !granted.has(scope),
-      );
+      const missingScopes = missingRequestedScopes(store.scope);
+      const grantedCount = DISPLAY_SCOPES.length - missingScopes.length;
       return {
         shopDomain: store.shopDomain,
         roles: Array.from(store.roles),
         isCurrent: store.isCurrent,
-        grantedCount: REQUESTED_SCOPES.length - missingScopes.length,
-        requiredCount: REQUESTED_SCOPES.length,
+        grantedCount,
+        requiredCount: DISPLAY_SCOPES.length,
         missingScopes,
       };
     }),
@@ -85,7 +114,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     timezone: setting?.timezone ?? "UTC",
     defaultConflictStrategy:
       (setting?.defaultConflictStrategy as { default?: string } | null)
-        ?.default ?? "SKIP",
+        ?.default ?? "OVERWRITE",
   };
 };
 
@@ -118,40 +147,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   return { saved: true };
 };
 
-function parseScopes(scope: string) {
-  return Array.from(
-    new Set(
-      scope
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-    ),
-  ).sort();
-}
-
 export default function Settings() {
   const data = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const revalidator = useRevalidator();
-  const grantedScopes = parseScopes(data.scope || "");
-  const missingScopes = REQUESTED_SCOPES.filter(
-    (scope) => !grantedScopes.includes(scope) && isRequestableScope(scope),
-  );
-  const scopesFetcher = useFetcher();
-  const isRequestingScopes = scopesFetcher.state !== "idle";
-
-  function requestAllPermissions() {
-    if (missingScopes.length === 0 || isRequestingScopes) return;
-    const form = new FormData();
-    for (const scope of REQUESTED_SCOPES.filter(isRequestableScope)) {
-      form.append("scopes", scope);
-    }
-    form.set("returnTo", "/app/settings");
-    scopesFetcher.submit(form, {
-      method: "post",
-      action: "/api/scopes/request",
-    });
-  }
+  const grantedScopes = parseGrantedScopes(data.scope || "");
+  const missingScopes = missingRequestedScopes(data.scope || "");
 
   // "baseline" is the last-saved value the save bar's dirty check compares
   // against — starts from the loader, and is advanced (not the loader data
@@ -248,9 +249,10 @@ export default function Settings() {
           {missingScopes.length === 0 ? (
             <s-banner
               tone="success"
-              heading={`All ${REQUESTED_SCOPES.length} permissions granted for ${data.shopDomain}`}
+              heading={`All required permissions ready for ${data.shopDomain}`}
             >
-              This destination store is ready for scans and migrations.
+              This store can run scans and migrations. Write access also covers
+              the matching read permissions.
             </s-banner>
           ) : (
             <s-banner tone="warning" heading="Permissions need approval">
@@ -258,14 +260,24 @@ export default function Settings() {
                 {data.shopDomain} is missing {missingScopes.length} required
                 permission{missingScopes.length === 1 ? "" : "s"}.
               </s-paragraph>
-              <s-button
-                slot="primary-action"
-                variant="primary"
-                loading={isRequestingScopes}
-                onClick={requestAllPermissions}
-              >
-                Grant all permissions
-              </s-button>
+              <Form method="post" action="/api/scopes/request">
+                {missingScopes.map((scope) => (
+                  <input
+                    key={scope}
+                    type="hidden"
+                    name="scopes"
+                    value={scope}
+                  />
+                ))}
+                <input type="hidden" name="returnTo" value="/app/settings" />
+                <s-button
+                  slot="primary-action"
+                  type="submit"
+                  variant="primary"
+                >
+                  Grant missing permissions
+                </s-button>
+              </Form>
             </s-banner>
           )}
 
@@ -321,24 +333,22 @@ export default function Settings() {
           </s-table>
 
           <s-banner
-            tone="warning"
-            heading="Partner approval is still required before launch"
+            tone="info"
+            heading="Optional Partner approvals"
           >
             <s-paragraph>
-              OAuth badges do not confirm Shopify Partner approval for protected
-              customer and order data. Theme file migration also requires a
-              write_themes exemption. Full order history needs approved
-              read_all_orders access; without it Shopify returns only the most
-              recent 60 days.
+              Normal migrations work with the permissions above. Full order
+              history (older than 60 days) needs Shopify Partner approval for
+              read_all_orders — that is a Shopify review, not an app bug.
             </s-paragraph>
           </s-banner>
 
           <s-text type="strong">Current store scope details</s-text>
           <s-stack direction="inline" gap="small-200">
-            {REQUESTED_SCOPES.map((scope) => (
+            {DISPLAY_SCOPES.map((scope) => (
               <s-badge
                 key={scope}
-                tone={grantedScopes.includes(scope) ? "success" : "warning"}
+                tone={grantedScopes.has(scope) ? "success" : "warning"}
               >
                 {scope}
               </s-badge>
