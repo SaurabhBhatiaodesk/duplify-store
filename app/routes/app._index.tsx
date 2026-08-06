@@ -23,7 +23,6 @@ import { StatusBadge } from "../components/dashboard/StatusBadge";
 import { HeroBanner } from "../components/dashboard/HeroBanner";
 import { MigrationList } from "../components/dashboard/MigrationList";
 import { EmptyState } from "../components/shared/EmptyState";
-import { PermissionBanner } from "../components/dashboard/PermissionBanner";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -396,8 +395,7 @@ interface SourceTheme {
 const LIMITATIONS_BANNER_DISMISSED_KEY = "duplify-limitations-banner-dismissed";
 
 export default function Overview() {
-  const { connections, jobs, stats, currentShopDomain } =
-    useLoaderData<typeof loader>();
+  const { connections, jobs, stats } = useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
   const revalidator = useRevalidator();
   const readyConnections = connections.filter((c) => c.status === "READY");
@@ -416,36 +414,8 @@ export default function Overview() {
 
   const selectedResources =
     type === "CUSTOM" ? resources : (TYPE_TO_RESOURCES[type] ?? []);
-  const selectedConnection = readyConnections.find(
-    (connection) => connection.id === storeConnectionId,
-  );
-  const selectedPermissionMissing = selectedConnection
-    ? [
-        {
-          resourceType: "app permissions",
-          missing: selectedConnection.sourceMissingScopes,
-          shopRole: "source" as const,
-          shopDomain: selectedConnection.source,
-          installed: selectedConnection.sourceInstalled,
-        },
-        {
-          resourceType: "app permissions",
-          missing: selectedConnection.destinationMissingScopes,
-          shopRole: "destination" as const,
-          shopDomain: selectedConnection.destination,
-          installed: selectedConnection.destinationInstalled,
-        },
-      ].filter((permission) => permission.missing.length > 0)
-    : [];
-  const selectedMissingScopes = Array.from(
-    new Set(
-      selectedPermissionMissing.flatMap((permission) => permission.missing),
-    ),
-  );
-  const selectedHasMissingScopes = selectedMissingScopes.length > 0;
-  const selectedSourceReconnectHref = selectedConnection
-    ? `/auth/external/begin?shop=${encodeURIComponent(selectedConnection.source)}&role=SOURCE`
-    : "/app/connect";
+  // READY pairs are never blocked by install/permission banners on Overview.
+  // Scan/import itself enforces real Shopify access; this UI was causing false blocks.
   const hasThemeLimitation = selectedResources.includes("theme");
   const hasDiscountLimitation = selectedResources.includes("discounts");
   const hasOrderLimitation = selectedResources.includes("orders");
@@ -453,7 +423,7 @@ export default function Overview() {
     !limitationsDismissed &&
     (hasThemeLimitation || hasDiscountLimitation || hasOrderLimitation);
   const limitationsHeading = "Migration limitations";
-  const needsThemePicker = hasThemeLimitation && !selectedHasMissingScopes;
+  const needsThemePicker = hasThemeLimitation;
 
   const themesFetcher = useFetcher<{
     themes: SourceTheme[];
@@ -560,14 +530,6 @@ export default function Overview() {
                   </s-option>
                 ))}
               </s-select>
-
-              {selectedHasMissingScopes && (
-                <PermissionBanner
-                  missing={selectedPermissionMissing}
-                  authorizeHref={selectedSourceReconnectHref}
-                  currentShopDomain={currentShopDomain}
-                />
-              )}
 
               <s-select
                 name="type"
@@ -691,11 +653,7 @@ export default function Overview() {
                 </s-option>
               </s-select>
 
-              <s-button
-                type="submit"
-                variant="primary"
-                disabled={selectedHasMissingScopes}
-              >
+              <s-button type="submit" variant="primary">
                 Run pre-migration scan
               </s-button>
             </s-stack>
