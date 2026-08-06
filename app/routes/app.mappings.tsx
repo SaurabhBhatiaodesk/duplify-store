@@ -6,6 +6,23 @@ import { listConnectionsForOwner } from "../lib/services/storeConnection.service
 import { MappingsTable } from "../components/mappings/MappingsTable";
 import { EmptyState } from "../components/shared/EmptyState";
 
+async function clearOrphanMappings(connectionIds: string[]) {
+  if (connectionIds.length === 0) return 0;
+
+  let cleared = 0;
+  for (const storeConnectionId of connectionIds) {
+    const jobsLeft = await db.migrationJob.count({
+      where: { storeConnectionId },
+    });
+    if (jobsLeft > 0) continue;
+    const result = await db.idMapping.deleteMany({
+      where: { storeConnectionId },
+    });
+    cleared += result.count;
+  }
+  return cleared;
+}
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = await db.shop.findUniqueOrThrow({
@@ -15,11 +32,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const connections = await listConnectionsForOwner(shop.id);
   const connectionIds = connections.map((c) => c.id);
 
+  // History already deleted but mappings left behind — wipe those orphans.
+  const autoCleared = await clearOrphanMappings(connectionIds);
+
   const url = new URL(request.url);
   const resourceType = url.searchParams.get("resourceType") || undefined;
   const connectionId = url.searchParams.get("connectionId") || undefined;
   const search = url.searchParams.get("q") || undefined;
-  const cleared = url.searchParams.get("cleared") === "1";
+  const cleared =
+    url.searchParams.get("cleared") === "1" || autoCleared > 0;
 
   const rows =
     connectionIds.length === 0
@@ -27,20 +48,25 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       : await db.idMapping.findMany({
           where: {
             storeConnectionId: connectionId ?? { in: connectionIds },
-            resourceType,
-            OR: search
-              ? [
-                  {
-                    sourceHandle: { contains: search, mode: "insensitive" },
-                  },
-                  {
-                    destinationHandle: {
-                      contains: search,
-                      mode: "insensitive",
+            ...(resourceType ? { resourceType } : {}),
+            ...(search
+              ? {
+                  OR: [
+                    {
+                      sourceHandle: {
+                        contains: search,
+                        mode: "insensitive" as const,
+                      },
                     },
-                  },
-                ]
-              : undefined,
+                    {
+                      destinationHandle: {
+                        contains: search,
+                        mode: "insensitive" as const,
+                      },
+                    },
+                  ],
+                }
+              : {}),
           },
           orderBy: { updatedAt: "desc" },
           take: 250,
@@ -48,6 +74,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   return {
     cleared,
+    autoCleared,
     connections: connections.map((c) => ({
       id: c.id,
       label: `${c.sourceShop.shopDomain} → ${c.destinationShop.shopDomain}`,
@@ -84,7 +111,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (!connectionIds.includes(connectionId)) {
       return redirect("/app/mappings");
     }
-    await db.idMapping.deleteMany({ where: { storeConnectionId: connectionId } });
+    await db.idMapping.deleteMany({
+      where: { storeConnectionId: connectionId },
+    });
   } else if (connectionIds.length > 0) {
     await db.idMapping.deleteMany({
       where: { storeConnectionId: { in: connectionIds } },
@@ -95,7 +124,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function IdMappings() {
-  const { connections, rows, cleared } = useLoaderData<typeof loader>();
+  const { connections, rows, cleared, autoCleared } =
+    useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
 
   if (connections.length === 0) {
@@ -114,29 +144,13 @@ export default function IdMappings() {
 
   return (
     <s-page heading="ID mappings" inlineSize="large">
-      {rows.length > 0 && (
-        <Form method="post">
-          <input type="hidden" name="intent" value="clear" />
-          <input
-            type="hidden"
-            name="connectionId"
-            value={searchParams.get("connectionId") ?? ""}
-          />
-          <s-button
-            slot="primary-action"
-            type="submit"
-            variant="primary"
-            tone="critical"
-          >
-            Clear mappings
-          </s-button>
-        </Form>
-      )}
-
       {cleared && (
         <s-banner tone="success" heading="ID mappings cleared">
-          Old mapping data was removed. New migrations will create fresh
-          mappings.
+          <s-paragraph>
+            {autoCleared > 0
+              ? `Removed ${autoCleared} leftover mapping${autoCleared === 1 ? "" : "s"} because migration history was empty.`
+              : "Old mapping data was removed. New migrations will create fresh mappings."}
+          </s-paragraph>
         </s-banner>
       )}
 
@@ -209,7 +223,32 @@ export default function IdMappings() {
         {rows.length === 0 ? (
           <s-paragraph>No ID mappings yet.</s-paragraph>
         ) : (
-          <MappingsTable rows={rows} />
+          <>
+            <Form
+              method="post"
+              style={{ marginBottom: "12px" }}
+              onSubmit={(event) => {
+                if (
+                  !window.confirm(
+                    "Clear all ID mappings for this store pair? This cannot be undone.",
+                  )
+                ) {
+                  event.preventDefault();
+                }
+              }}
+            >
+              <input type="hidden" name="intent" value="clear" />
+              <input
+                type="hidden"
+                name="connectionId"
+                value={searchParams.get("connectionId") ?? ""}
+              />
+              <s-button type="submit" variant="secondary" tone="critical">
+                Clear all mappings
+              </s-button>
+            </Form>
+            <MappingsTable rows={rows} />
+          </>
         )}
       </s-section>
     </s-page>
