@@ -284,11 +284,6 @@ export default function Settings() {
                       tone={
                         store.missingScopes.length === 0 ? "success" : "warning"
                       }
-                      icon={
-                        store.missingScopes.length === 0
-                          ? "check-circle"
-                          : "alert-triangle"
-                      }
                     >
                       {store.missingScopes.length === 0
                         ? "All granted"
@@ -331,11 +326,6 @@ export default function Settings() {
               <s-badge
                 key={scope}
                 tone={grantedScopes.includes(scope) ? "success" : "warning"}
-                icon={
-                  grantedScopes.includes(scope)
-                    ? "check-circle"
-                    : "alert-triangle"
-                }
               >
                 {scope}
               </s-badge>
