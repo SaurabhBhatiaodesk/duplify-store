@@ -27,6 +27,12 @@ export interface ProductBulkPayload {
     selectedOptions: Array<{ name: string; value: string }>;
   }>;
   media: Array<{ id: string; alt: string | null; image: { url: string } | null }>;
+  metafields: Array<{
+    namespace: string;
+    key: string;
+    type: string;
+    value: string;
+  }>;
   collectionIds: string[];
 }
 

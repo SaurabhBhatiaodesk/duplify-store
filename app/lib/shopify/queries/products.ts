@@ -35,6 +35,27 @@ export const BULK_PRODUCTS_QUERY = `
             }
           }
         }
+        media {
+          edges {
+            node {
+              ... on MediaImage {
+                id
+                alt
+                image { url }
+              }
+            }
+          }
+        }
+        metafields {
+          edges {
+            node {
+              namespace
+              key
+              type
+              value
+            }
+          }
+        }
         collections {
           edges { node { id } }
         }
@@ -75,6 +96,27 @@ export const PRODUCTS_PAGE_QUERY = `#graphql
               }
             }
           }
+          media(first: 50) {
+            edges {
+              node {
+                ... on MediaImage {
+                  id
+                  alt
+                  image { url }
+                }
+              }
+            }
+          }
+          metafields(first: 50) {
+            edges {
+              node {
+                namespace
+                key
+                type
+                value
+              }
+            }
+          }
           collections(first: 100) {
             edges { node { id } }
           }
@@ -88,7 +130,21 @@ export const PRODUCTS_PAGE_QUERY = `#graphql
 export const PRODUCT_BY_HANDLE_QUERY = `#graphql
   query duplifyProductByHandle($query: String!) {
     products(first: 1, query: $query) {
-      edges { node { id handle } }
+      edges {
+        node {
+          id
+          handle
+          variants(first: 250) {
+            edges {
+              node {
+                id
+                sku
+                selectedOptions { name value }
+              }
+            }
+          }
+        }
+      }
     }
   }
 `;

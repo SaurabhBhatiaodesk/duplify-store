@@ -123,9 +123,19 @@ async function processCustomerItem(
   }
 
   if (existingDestinationId && conflictStrategy === "SKIP") {
+    await saveMapping({
+      storeConnectionId,
+      resourceType: "customer",
+      sourceId: item.sourceId,
+      destinationId: existingDestinationId,
+    });
     await db.migrationItem.update({
       where: { id: item.id },
-      data: { status: "SKIPPED", errorMessage: "Customer with this email already exists on the destination store" },
+      data: {
+        status: "SKIPPED",
+        destinationId: existingDestinationId,
+        errorMessage: "Customer with this email already exists on the destination store",
+      },
     });
     return;
   }

@@ -82,10 +82,15 @@ export async function runCollectionsStage(job: MigrationJobWithConnection): Prom
     },
   });
 
-  // Built once per stage run: every completed product, so we can translate a
-  // collection's source member-product ids into destination ids.
+  // Include SKIPPED products that still have a destination mapping so manual
+  // collection membership (and inventory) keep working after skip-on-conflict.
   const productItems = await db.migrationItem.findMany({
-    where: { migrationJobId: job.id, resourceType: "product", status: "COMPLETED" },
+    where: {
+      migrationJobId: job.id,
+      resourceType: "product",
+      status: { in: ["COMPLETED", "SKIPPED"] },
+      destinationId: { not: null },
+    },
   });
 
   for (const item of pendingItems) {
@@ -116,6 +121,7 @@ async function processCollectionItem(
     item.sourceId,
   );
   let destinationId = alreadyMapped?.destinationId ?? null;
+  let skippedExisting = false;
 
   if (!destinationId) {
     let existingDestinationId: string | null = null;
@@ -132,78 +138,107 @@ async function processCollectionItem(
     }
 
     if (existingDestinationId && conflictStrategy === "SKIP") {
-      await db.migrationItem.update({
-        where: { id: item.id },
-        data: { status: "SKIPPED", errorMessage: "Collection with this handle already exists on the destination store" },
-      });
-      return;
-    }
-
-    const input: CollectionCreateInput = {
-      title: collection.title,
-      handle:
-        existingDestinationId && conflictStrategy === "CREATE_NEW"
-          ? `${collection.handle}-copy-${Date.now().toString(36)}`
-          : collection.handle,
-      descriptionHtml: collection.descriptionHtml ?? undefined,
-      sortOrder: collection.sortOrder ?? undefined,
-      templateSuffix: collection.templateSuffix ?? undefined,
-      image: collection.image ? { src: collection.image.url, altText: collection.image.altText ?? undefined } : undefined,
-      ruleSet: collection.ruleSet
-        ? {
-            appliedDisjunctively: collection.ruleSet.appliedDisjunctively,
-            rules: collection.ruleSet.rules,
-          }
-        : undefined,
-    };
-
-    try {
-      const shouldUpdate = existingDestinationId !== null && conflictStrategy !== "CREATE_NEW";
-      const outcome = shouldUpdate
-        ? (
-            await destAdmin.graphql<CollectionUpdateResponse>(
-            COLLECTION_UPDATE_MUTATION,
-            { input: { ...input, id: existingDestinationId! } satisfies CollectionUpdateInput },
-            20,
-          )
-          ).collectionUpdate
-        : (await destAdmin.graphql<CollectionCreateResponse>(COLLECTION_CREATE_MUTATION, { input }, 20)).collectionCreate;
-
-      if (outcome.userErrors.length > 0 || !outcome.collection) {
-        const message = outcome.userErrors.map((e) => e.message).join("; ") || `Unknown collection${shouldUpdate ? "Update" : "Create"} error`;
-        await fail(job.id, item.id, message);
-        return;
-      }
-
-      destinationId = outcome.collection.id;
       await saveMapping({
         storeConnectionId,
         resourceType: "collection",
         sourceId: item.sourceId,
-        destinationId,
+        destinationId: existingDestinationId,
         sourceHandle: collection.handle,
-        destinationHandle: outcome.collection.handle,
+        destinationHandle: collection.handle,
       });
+      destinationId = existingDestinationId;
+      skippedExisting = true;
+      await db.migrationItem.update({
+        where: { id: item.id },
+        data: {
+          status: "SKIPPED",
+          destinationId: existingDestinationId,
+          errorMessage: "Collection with this handle already exists on the destination store",
+        },
+      });
+    } else {
+      const input: CollectionCreateInput = {
+        title: collection.title,
+        handle:
+          existingDestinationId && conflictStrategy === "CREATE_NEW"
+            ? `${collection.handle}-copy-${Date.now().toString(36)}`
+            : collection.handle,
+        descriptionHtml: collection.descriptionHtml ?? undefined,
+        sortOrder: collection.sortOrder ?? undefined,
+        templateSuffix: collection.templateSuffix ?? undefined,
+        image: collection.image
+          ? { src: collection.image.url, altText: collection.image.altText ?? undefined }
+          : undefined,
+        ruleSet: collection.ruleSet
+          ? {
+              appliedDisjunctively: collection.ruleSet.appliedDisjunctively,
+              rules: collection.ruleSet.rules,
+            }
+          : undefined,
+      };
 
-      const { publishToOnlineStore } = await import("../../shopify/publications");
-      const published = await publishToOnlineStore(destAdmin, destinationId);
-      if (!published.ok) {
-        await logEvent(
-          job.id,
-          "WARN",
-          `Collection "${collection.title}" migrated but not published: ${published.message ?? "unknown"}`,
-          { sourceId: item.sourceId, destinationId },
-        );
+      try {
+        const shouldUpdate =
+          existingDestinationId !== null && conflictStrategy !== "CREATE_NEW";
+        const outcome = shouldUpdate
+          ? (
+              await destAdmin.graphql<CollectionUpdateResponse>(
+                COLLECTION_UPDATE_MUTATION,
+                {
+                  input: {
+                    ...input,
+                    id: existingDestinationId!,
+                  } satisfies CollectionUpdateInput,
+                },
+                20,
+              )
+            ).collectionUpdate
+          : (
+              await destAdmin.graphql<CollectionCreateResponse>(
+                COLLECTION_CREATE_MUTATION,
+                { input },
+                20,
+              )
+            ).collectionCreate;
+
+        if (outcome.userErrors.length > 0 || !outcome.collection) {
+          const message =
+            outcome.userErrors.map((e) => e.message).join("; ") ||
+            `Unknown collection${shouldUpdate ? "Update" : "Create"} error`;
+          await fail(job.id, item.id, message);
+          return;
+        }
+
+        destinationId = outcome.collection.id;
+        await saveMapping({
+          storeConnectionId,
+          resourceType: "collection",
+          sourceId: item.sourceId,
+          destinationId,
+          sourceHandle: collection.handle,
+          destinationHandle: outcome.collection.handle,
+        });
+
+        const { publishToOnlineStore } = await import("../../shopify/publications");
+        const published = await publishToOnlineStore(destAdmin, destinationId);
+        if (!published.ok) {
+          await logEvent(
+            job.id,
+            "WARN",
+            `Collection "${collection.title}" migrated but not published: ${published.message ?? "unknown"}`,
+            { sourceId: item.sourceId, destinationId },
+          );
+        }
+      } catch (error) {
+        await fail(job.id, item.id, errMsg(error));
+        return;
       }
-    } catch (error) {
-      await fail(job.id, item.id, errMsg(error));
-      return;
     }
   }
 
   // Manual collections carry an explicit product list; smart collections
   // (ruleSet present) populate themselves from their rules, so skip membership.
-  if (!collection.ruleSet) {
+  if (!collection.ruleSet && destinationId) {
     const memberDestinationIds = productItems
       .filter((p) => {
         const payload = p.payload as unknown as ProductBulkPayload;
@@ -219,9 +254,21 @@ async function processCollectionItem(
           Math.ceil(memberDestinationIds.length / 5) + 5,
         );
       } catch (error) {
-        await logEvent(job.id, "WARN", `Collection "${collection.title}" created but adding products failed: ${errMsg(error)}`);
+        await logEvent(
+          job.id,
+          "WARN",
+          `Collection "${collection.title}" created but adding products failed: ${errMsg(error)}`,
+        );
       }
     }
+  }
+
+  if (skippedExisting) {
+    await logEvent(job.id, "INFO", `Linked existing collection "${collection.title}"`, {
+      sourceId: item.sourceId,
+      destinationId,
+    });
+    return;
   }
 
   await db.migrationItem.update({

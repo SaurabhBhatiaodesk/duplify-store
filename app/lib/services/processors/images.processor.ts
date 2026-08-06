@@ -20,7 +20,12 @@ export async function ensureImageItems(job: MigrationJobWithConnection): Promise
   if (existing > 0) return;
 
   const completedProducts = await db.migrationItem.findMany({
-    where: { migrationJobId: job.id, resourceType: "product", status: "COMPLETED" },
+    where: {
+      migrationJobId: job.id,
+      resourceType: "product",
+      status: { in: ["COMPLETED", "SKIPPED"] },
+      destinationId: { not: null },
+    },
   });
 
   const rows = completedProducts.flatMap((productItem) => {

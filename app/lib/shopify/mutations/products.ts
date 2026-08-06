@@ -41,6 +41,13 @@ export interface ProductSetVariantInput {
   inventoryPolicy?: "DENY" | "CONTINUE";
 }
 
+export interface ProductSetMetafieldInput {
+  namespace: string;
+  key: string;
+  type: string;
+  value: string;
+}
+
 export interface ProductSetInput {
   id?: string;
   title: string;
@@ -58,6 +65,7 @@ export interface ProductSetInput {
     values: Array<{ name: string }>;
   }>;
   variants: ProductSetVariantInput[];
+  metafields?: ProductSetMetafieldInput[];
 }
 
 export const PRODUCT_CREATE_MEDIA_MUTATION = `#graphql

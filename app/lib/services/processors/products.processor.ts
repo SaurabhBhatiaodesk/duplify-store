@@ -51,6 +51,7 @@ export async function ensureProductItems(
       parent: record.parent as unknown as ProductBulkPayload["parent"],
       variants: (record.childrenByField.ProductVariant ?? []) as unknown as ProductBulkPayload["variants"],
       media: (record.childrenByField.MediaImage ?? []) as unknown as ProductBulkPayload["media"],
+      metafields: (record.childrenByField.Metafield ?? []) as unknown as ProductBulkPayload["metafields"],
       collectionIds: (record.childrenByField.Collection ?? []).map(
         (c) => c.id as string,
       ),
@@ -78,6 +79,8 @@ interface ProductsPageResponse {
     edges: Array<{
       node: ProductBulkPayload["parent"] & {
         variants: { edges: Array<{ node: ProductBulkPayload["variants"][number] }> };
+        media: { edges: Array<{ node: ProductBulkPayload["media"][number] }> };
+        metafields: { edges: Array<{ node: ProductBulkPayload["metafields"][number] }> };
         collections: { edges: Array<{ node: { id: string } }> };
       };
     }>;
@@ -94,13 +97,21 @@ async function fetchProductsByPages(
   do {
     const result: ProductsPageResponse = await sourceAdmin.graphql<ProductsPageResponse>(PRODUCTS_PAGE_QUERY, { after }, 50);
     for (const edge of result.products.edges) {
-      const { variants, collections, ...parent } = edge.node;
+      const { variants, media, metafields, collections, ...parent } = edge.node;
       grouped.push({
         parent: parent as unknown as Record<string, unknown>,
         childrenByField: {
           ProductVariant: variants.edges.map(
             (variant: { node: ProductBulkPayload["variants"][number] }) =>
               variant.node as unknown as Record<string, unknown>,
+          ),
+          MediaImage: (media?.edges ?? []).map(
+            (m: { node: ProductBulkPayload["media"][number] }) =>
+              m.node as unknown as Record<string, unknown>,
+          ),
+          Metafield: (metafields?.edges ?? []).map(
+            (m: { node: ProductBulkPayload["metafields"][number] }) =>
+              m.node as unknown as Record<string, unknown>,
           ),
           Collection: collections.edges.map(
             (collection: { node: { id: string } }) =>
@@ -149,7 +160,23 @@ interface ProductSetResponse {
 }
 
 interface ProductByHandleResponse {
-  products: { edges: Array<{ node: { id: string; handle: string } }> };
+  products: {
+    edges: Array<{
+      node: {
+        id: string;
+        handle: string;
+        variants: {
+          edges: Array<{
+            node: {
+              id: string;
+              sku: string | null;
+              selectedOptions: Array<{ name: string; value: string }>;
+            };
+          }>;
+        };
+      };
+    }>;
+  };
 }
 
 async function processProductItem(
@@ -198,18 +225,21 @@ async function processProductItem(
     }
   }
 
-  let existingDestinationId: string | null = null;
+  let existingNode: ProductByHandleResponse["products"]["edges"][number]["node"] | null =
+    null;
   try {
     const existing = await destAdmin.graphql<ProductByHandleResponse>(
       PRODUCT_BY_HANDLE_QUERY,
       { query: `handle:'${payload.parent.handle.replace(/'/g, "")}'` },
       5,
     );
-    existingDestinationId = existing.products.edges[0]?.node.id ?? null;
+    existingNode = existing.products.edges[0]?.node ?? null;
   } catch (error) {
     await failItem(job.id, item.id, item.attempt, `Conflict check failed: ${errMsg(error)}`);
     return;
   }
+
+  const existingDestinationId = existingNode?.id ?? null;
 
   if (existingDestinationId && conflictStrategy === "SKIP") {
     await saveMapping({
@@ -219,6 +249,15 @@ async function processProductItem(
       destinationId: existingDestinationId,
       sourceHandle: payload.parent.handle,
       destinationHandle: payload.parent.handle,
+    });
+    // Map variants onto the existing destination product so inventory/orders
+    // still resolve after a skip-on-conflict.
+    await recordVariantMigrationItems({
+      migrationJobId: job.id,
+      storeConnectionId,
+      productSourceId: item.sourceId,
+      sourceVariants: payload.variants,
+      createdVariants: (existingNode?.variants.edges ?? []).map((e) => e.node),
     });
     await db.migrationItem.update({
       where: { id: item.id },
@@ -260,6 +299,15 @@ async function processProductItem(
         values: option.values.map((value) => ({ name: value })),
       })) ?? undefined,
     variants: buildVariantInputs(payload),
+    metafields:
+      payload.metafields
+        ?.filter((m) => m.namespace && m.key && m.type && m.value != null)
+        .map((m) => ({
+          namespace: m.namespace,
+          key: m.key,
+          type: m.type,
+          value: m.value,
+        })) ?? undefined,
   };
 
   let result: ProductSetResponse;

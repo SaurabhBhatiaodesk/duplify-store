@@ -218,7 +218,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const storeConnectionId = String(form.get("storeConnectionId") ?? "");
   const type = String(form.get("type") ?? "PRODUCTS");
   const conflictStrategy = String(
-    form.get("conflictStrategy") ?? "SKIP",
+    form.get("conflictStrategy") ?? "OVERWRITE",
   ) as ConflictStrategy;
   const themeSourceId = String(form.get("themeSourceId") ?? "");
 
@@ -646,16 +646,16 @@ export default function Overview() {
               <s-select
                 name="conflictStrategy"
                 label="If a record already exists on the destination store"
-                value="SKIP"
+                value="OVERWRITE"
               >
                 <s-option value="" disabled>
                   Select conflict handling
                 </s-option>
+                <s-option value="OVERWRITE">Overwrite it (recommended for full copy)</s-option>
                 <s-option value="SKIP">Skip it</s-option>
-                <s-option value="OVERWRITE">Overwrite it</s-option>
                 <s-option value="CREATE_NEW">Create a new copy</s-option>
                 <s-option value="MERGE">
-                  Merge (falls back to overwrite in Phase 1)
+                  Merge (falls back to overwrite)
                 </s-option>
               </s-select>
 

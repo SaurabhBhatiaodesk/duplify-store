@@ -103,14 +103,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       notificationEmail: String(form.get("notificationEmail") || "") || null,
       timezone: String(form.get("timezone") || "UTC"),
       defaultConflictStrategy: {
-        default: String(form.get("defaultConflictStrategy") || "SKIP"),
+        default: String(form.get("defaultConflictStrategy") || "OVERWRITE"),
       },
     },
     update: {
       notificationEmail: String(form.get("notificationEmail") || "") || null,
       timezone: String(form.get("timezone") || "UTC"),
       defaultConflictStrategy: {
-        default: String(form.get("defaultConflictStrategy") || "SKIP"),
+        default: String(form.get("defaultConflictStrategy") || "OVERWRITE"),
       },
     },
   });
