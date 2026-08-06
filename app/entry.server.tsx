@@ -27,6 +27,14 @@ export default async function handleRequest(
           const stream = createReadableStreamFromReadable(body);
 
           responseHeaders.set("Content-Type", "text/html");
+          // Shopify admin iframes can keep a stale document that still points at
+          // old JS chunks — never let browsers/CDNs cache the app shell.
+          responseHeaders.set(
+            "Cache-Control",
+            "no-store, no-cache, must-revalidate, max-age=0",
+          );
+          responseHeaders.set("Pragma", "no-cache");
+          responseHeaders.set("Expires", "0");
           resolve(
             new Response(stream, {
               headers: responseHeaders,

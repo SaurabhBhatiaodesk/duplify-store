@@ -505,12 +505,12 @@ export default function Overview() {
       </s-section>
 
       {hasReadyConnection && (
-        <s-section heading="Step 3: Start a migration">
+        <s-section heading="Start migration">
           <Form method="post">
             <s-stack direction="block" gap="base">
               <s-paragraph>
                 Choose a connected store pair, select what to copy, then run the
-                scan before starting the migration.
+                scan. Connected pairs are ready to scan — no extra install step.
               </s-paragraph>
               <s-select
                 name="storeConnectionId"

@@ -92,5 +92,11 @@ export function ErrorBoundary() {
 }
 
 export const headers: HeadersFunction = (headersArgs) => {
-  return boundary.headers(headersArgs);
+  const headers = boundary.headers(headersArgs);
+  headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, max-age=0",
+  );
+  headers.set("Pragma", "no-cache");
+  return headers;
 };
