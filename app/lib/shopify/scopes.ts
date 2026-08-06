@@ -84,12 +84,22 @@ export const RESOURCE_TYPE_SCOPES: Record<string, readonly string[]> = {
 };
 
 export function parseGrantedScopes(grantedScope: string): Set<string> {
-  return new Set(
+  const granted = new Set(
     grantedScope
-      .split(",")
+      .split(/[,\s]+/)
       .map((scope) => scope.trim())
       .filter(Boolean),
   );
+
+  // Shopify may return write_* without the matching read_*. For our access
+  // checks, write access is enough to cover the matching read scope.
+  for (const scope of [...granted]) {
+    if (scope.startsWith("write_")) {
+      granted.add(`read_${scope.slice("write_".length)}`);
+    }
+  }
+
+  return granted;
 }
 
 export function missingRequestedScopes(grantedScope: string): string[] {

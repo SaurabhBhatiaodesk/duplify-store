@@ -88,11 +88,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     );
   }
 
+  // Save whatever Shopify granted. Scan/PermissionBanner already tell the
+  // merchant which remaining permissions are needed for specific resources.
   const missingScopes = missingRequestedScopes(tokenResult.scope);
   if (missingScopes.length > 0) {
-    return confirmationPage(
-      "The source store did not grant all required access. Ask its admin to approve every requested permission, then create a new approval link.",
-      false,
+    console.warn(
+      `External OAuth for ${shop} granted partial scopes. Missing: ${missingScopes.join(",")}`,
     );
   }
 
@@ -132,8 +133,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     },
   });
 
+  const connectedRole =
+    statePayload.ownerRole === "SOURCE" ? "destination" : "source";
   return confirmationPage(
-    `${shop} is now connected as the ${statePayload.ownerRole === "SOURCE" ? "destination" : "source"} store.`,
+    missingScopes.length > 0
+      ? `${shop} is connected as the ${connectedRole} store. Some permissions are still missing — return to Duplify Store and follow the approval steps shown there.`
+      : `${shop} is now connected as the ${connectedRole} store.`,
     true,
   );
 };
