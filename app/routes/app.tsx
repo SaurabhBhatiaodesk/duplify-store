@@ -20,7 +20,7 @@ export default function App() {
     <AppProvider embedded apiKey={apiKey}>
       <s-app-nav>
         <s-link href="/app">Overview</s-link>
-        <s-link href="/app/connect">Connect pair</s-link>
+        <s-link href="/app/connect">Import / Export</s-link>
         <s-link href="/app/migrations">History</s-link>
         <s-link href="/app/mappings">ID mappings</s-link>
         <s-link href="/app/documentation">Documentation</s-link>

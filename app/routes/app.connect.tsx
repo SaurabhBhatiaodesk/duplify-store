@@ -69,12 +69,15 @@ export default function ConnectStores() {
     currentRole === "DESTINATION" ? currentShopDomain : otherShop || "—";
 
   return (
-    <s-page heading="Set up your import" inlineSize="large">
-      <s-section heading="Choose stores">
+    <s-page heading="Import / Export" inlineSize="large">
+      <s-section heading="Choose what you want">
         <s-stack direction="block" gap="base">
           <s-paragraph>
-            Pick where data comes from (Source) and where it goes
-            (Destination). Install Duplify on both stores, then connect.
+            <s-text type="strong">Import</s-text> = dusre store se data is store
+            mein lao.
+            <br />
+            <s-text type="strong">Export</s-text> = is store ka data dusre store
+            mein bhejo.
           </s-paragraph>
 
           <s-stack direction="inline" gap="base">
@@ -82,13 +85,13 @@ export default function ConnectStores() {
               variant={currentRole === "DESTINATION" ? "primary" : "secondary"}
               onClick={() => setCurrentRole("DESTINATION")}
             >
-              Import into this store
+              Import
             </s-button>
             <s-button
               variant={currentRole === "SOURCE" ? "primary" : "secondary"}
               onClick={() => setCurrentRole("SOURCE")}
             >
-              Export from this store
+              Export
             </s-button>
           </s-stack>
 
@@ -99,9 +102,9 @@ export default function ConnectStores() {
             background="base"
           >
             <s-stack direction="block" gap="small-200">
-              <s-text type="strong">Source (copy from)</s-text>
+              <s-text type="strong">Source (data jahan se aayega)</s-text>
               <s-text>{sourceLabel || "—"}</s-text>
-              <s-text type="strong">Destination (copy to)</s-text>
+              <s-text type="strong">Destination (data jahan jayega)</s-text>
               <s-text>{destinationLabel || "—"}</s-text>
             </s-stack>
           </s-box>
@@ -116,8 +119,8 @@ export default function ConnectStores() {
                 name="otherShopDomain"
                 label={
                   currentRole === "DESTINATION"
-                    ? "Source store domain"
-                    : "Destination store domain"
+                    ? "Source store (copy from)"
+                    : "Destination store (copy to)"
                 }
                 placeholder="other-store.myshopify.com"
                 value={otherShop}
@@ -126,8 +129,9 @@ export default function ConnectStores() {
 
               {otherHandle && (
                 <s-paragraph>
+                  Pehle dusre store par app install karo:{" "}
                   <s-link href={otherInstallHref} target="_blank">
-                    Install Duplify on {otherHandle}.myshopify.com
+                    Install Duplify
                   </s-link>
                 </s-paragraph>
               )}
