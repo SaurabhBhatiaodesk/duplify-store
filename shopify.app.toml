@@ -8,7 +8,9 @@ embedded = true
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 # Keep in sync with REQUESTED_SCOPES in app/lib/shopify/scopes.ts
-scopes = "read_all_orders,read_content,read_customers,read_discounts,read_draft_orders,read_files,read_inventory,read_locations,read_metaobject_definitions,read_metaobjects,read_online_store_navigation,read_orders,read_products,read_themes,write_content,write_customers,write_discounts,write_draft_orders,write_files,write_inventory,write_metaobject_definitions,write_metaobjects,write_online_store_navigation,write_orders,write_products,write_themes"
+# read_all_orders stays in scopes.ts but is omitted here until Shopify Partner
+# approval is granted (CLI rejects publishing it otherwise).
+scopes = "read_content,read_customers,read_discounts,read_draft_orders,read_files,read_inventory,read_locations,read_metaobject_definitions,read_metaobjects,read_online_store_navigation,read_orders,read_products,read_themes,write_content,write_customers,write_discounts,write_draft_orders,write_files,write_inventory,write_metaobject_definitions,write_metaobjects,write_online_store_navigation,write_orders,write_products,write_themes"
 
 [auth]
 # OAuth approval links return to the same /auth/callback route used by the
