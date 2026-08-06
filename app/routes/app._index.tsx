@@ -442,9 +442,9 @@ export default function Overview() {
   }, [hasLiveJobs, revalidator]);
 
   useEffect(() => {
-    if (needsThemePicker && storeConnectionId) {
-      themesFetcher.load(`/api/connections/${storeConnectionId}/themes`);
-    }
+    if (!needsThemePicker || !storeConnectionId) return;
+    themesFetcher.load(`/api/connections/${storeConnectionId}/themes`);
+    // Load once per connection/type — do not depend on fetcher identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsThemePicker, storeConnectionId]);
 
@@ -489,19 +489,16 @@ export default function Overview() {
             label="Active migrations"
             value={stats.active}
             tone="info"
-            icon="clock"
           />
           <StatCard
             label="Completed migrations"
             value={stats.completed}
             tone="success"
-            icon="check-circle"
           />
           <StatCard
             label="Failed migrations"
             value={stats.failed}
             tone={stats.failed > 0 ? "critical" : "neutral"}
-            icon="alert-triangle"
           />
         </s-stack>
       </s-section>
@@ -540,28 +537,21 @@ export default function Overview() {
                 />
               )}
 
-              <s-choice-list
+              <s-select
                 name="type"
                 label="Migration type"
-                values={[type]}
+                value={type}
                 onChange={(e) => {
-                  const values = (e.target as unknown as { values: string[] })
-                    .values;
-                  if (values[0]) {
-                    setType(values[0]);
-                  }
+                  setType(e.currentTarget.value);
+                  setThemeSourceId("");
                 }}
               >
-                {MIGRATION_TYPES.map((t) => (
-                  <s-choice
-                    key={t.value}
-                    value={t.value}
-                    disabled={!t.supported}
-                  >
+                {MIGRATION_TYPES.filter((t) => t.supported).map((t) => (
+                  <s-option key={t.value} value={t.value}>
                     {t.label}
-                  </s-choice>
+                  </s-option>
                 ))}
-              </s-choice-list>
+              </s-select>
 
               {type === "CUSTOM" && (
                 <s-choice-list

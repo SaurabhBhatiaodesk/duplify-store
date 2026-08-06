@@ -1,5 +1,10 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { Outlet, useLoaderData, useRouteError } from "react-router";
+import {
+  Outlet,
+  isRouteErrorResponse,
+  useLoaderData,
+  useRouteError,
+} from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
@@ -31,9 +36,54 @@ export default function App() {
   );
 }
 
-// Shopify needs React Router to catch some thrown responses, so that their headers are included in the response.
+function FriendlyError({ message }: { message: string }) {
+  return (
+    <s-page heading="Something went wrong">
+      <s-banner tone="critical" heading="Could not load this page">
+        <s-paragraph>{message}</s-paragraph>
+        <s-button slot="primary-action" href="/app" variant="primary">
+          Back to Overview
+        </s-button>
+      </s-banner>
+    </s-page>
+  );
+}
+
+// Shopify needs React Router to catch some thrown responses, so that their
+// headers are included. Shopify's default boundary rethrows normal Errors and
+// can render an empty pink banner for ErrorResponses with blank bodies.
 export function ErrorBoundary() {
-  return boundary.error(useRouteError());
+  const error = useRouteError();
+
+  if (isRouteErrorResponse(error)) {
+    if (error.data && typeof error.data === "string" && error.data.trim()) {
+      return boundary.error(error);
+    }
+    return (
+      <FriendlyError
+        message={
+          error.statusText ||
+          `Request failed (${error.status}). Try refreshing the page.`
+        }
+      />
+    );
+  }
+
+  if (error instanceof Error) {
+    return (
+      <FriendlyError
+        message={error.message || "Unexpected client error. Please refresh."}
+      />
+    );
+  }
+
+  try {
+    return boundary.error(error);
+  } catch {
+    return (
+      <FriendlyError message="Unexpected error. Please refresh and try again." />
+    );
+  }
 }
 
 export const headers: HeadersFunction = (headersArgs) => {
