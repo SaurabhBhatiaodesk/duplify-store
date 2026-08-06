@@ -29,6 +29,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
   if (!shop) {
     return {
+      currentShopDomain: session.shop,
       connections: [],
       jobs: [],
       stats: { active: 0, completed: 0, failed: 0 },
@@ -71,11 +72,22 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   ]);
 
   return {
+    currentShopDomain: session.shop,
     connections: connections.map((c) => ({
       id: c.id,
       source: c.sourceShop.shopDomain,
       destination: c.destinationShop.shopDomain,
       status: c.status,
+      sourceInstalled: Boolean(
+        c.sourceShop.isActive &&
+          c.sourceShop.accessTokenEncrypted &&
+          !c.sourceShop.uninstalledAt,
+      ),
+      destinationInstalled: Boolean(
+        c.destinationShop.isActive &&
+          c.destinationShop.accessTokenEncrypted &&
+          !c.destinationShop.uninstalledAt,
+      ),
       sourceMissingScopes: missingRequestedScopes(c.sourceShop.scope),
       destinationMissingScopes: missingRequestedScopes(c.destinationShop.scope),
     })),
@@ -368,7 +380,8 @@ interface SourceTheme {
 const LIMITATIONS_BANNER_DISMISSED_KEY = "duplify-limitations-banner-dismissed";
 
 export default function Overview() {
-  const { connections, jobs, stats } = useLoaderData<typeof loader>();
+  const { connections, jobs, stats, currentShopDomain } =
+    useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
   const revalidator = useRevalidator();
   const readyConnections = connections.filter((c) => c.status === "READY");
@@ -397,12 +410,14 @@ export default function Overview() {
           missing: selectedConnection.sourceMissingScopes,
           shopRole: "source" as const,
           shopDomain: selectedConnection.source,
+          installed: selectedConnection.sourceInstalled,
         },
         {
           resourceType: "app permissions",
           missing: selectedConnection.destinationMissingScopes,
           shopRole: "destination" as const,
           shopDomain: selectedConnection.destination,
+          installed: selectedConnection.destinationInstalled,
         },
       ].filter((permission) => permission.missing.length > 0)
     : [];
@@ -534,6 +549,7 @@ export default function Overview() {
                 <PermissionBanner
                   missing={selectedPermissionMissing}
                   authorizeHref={selectedSourceReconnectHref}
+                  currentShopDomain={currentShopDomain}
                 />
               )}
 

@@ -9,13 +9,18 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { authenticate } from "../shopify.server";
-import { getOrCreateShop } from "../lib/services/storeConnection.service";
+import { syncEmbeddedShopFromSession } from "../lib/services/storeConnection.service";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  await getOrCreateShop(session.shop);
+  // Keep Shop.scope / token in sync on every open — otherwise Overview keeps
+  // saying "Source store needs Duplify installed" after the app is already on.
+  await syncEmbeddedShopFromSession(session);
 
-  return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  return {
+    apiKey: process.env.SHOPIFY_API_KEY || "",
+    shopDomain: session.shop,
+  };
 };
 
 export default function App() {
@@ -81,7 +86,7 @@ export function ErrorBoundary() {
     return boundary.error(error);
   } catch {
     return (
-      <FriendlyError message="Unexpected error. Please refresh and try again." />
+      <FriendlyError message="Unexpected error. Please refresh the page." />
     );
   }
 }

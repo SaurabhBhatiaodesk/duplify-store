@@ -1,4 +1,5 @@
 import db from "../../db.server";
+import { encryptToken } from "../crypto/token-cipher";
 
 // Ensures the currently-embedded shop has a `Shop` row. Normally this is
 // created by the `afterAuth` hook in shopify.server.ts the moment OAuth
@@ -9,6 +10,37 @@ export async function getOrCreateShop(shopDomain: string) {
     where: { shopDomain },
     create: { shopDomain, accessTokenEncrypted: "", scope: "" },
     update: {},
+  });
+}
+
+/**
+ * Mirror the embedded session into our Shop table on every app open so
+ * permission checks (Overview banner, scan) see the real granted scopes —
+ * not a stale empty row left behind by getOrCreateShop / pairing.
+ */
+export async function syncEmbeddedShopFromSession(session: {
+  shop: string;
+  accessToken?: string;
+  scope?: string;
+}) {
+  const token = session.accessToken?.trim() ?? "";
+  const scope = session.scope?.trim() ?? "";
+
+  return db.shop.upsert({
+    where: { shopDomain: session.shop },
+    create: {
+      shopDomain: session.shop,
+      accessTokenEncrypted: token ? encryptToken(token) : "",
+      scope,
+      isActive: true,
+      uninstalledAt: null,
+    },
+    update: {
+      ...(token ? { accessTokenEncrypted: encryptToken(token) } : {}),
+      ...(scope ? { scope } : {}),
+      isActive: true,
+      uninstalledAt: null,
+    },
   });
 }
 
