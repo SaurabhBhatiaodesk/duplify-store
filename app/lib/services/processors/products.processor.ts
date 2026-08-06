@@ -212,9 +212,21 @@ async function processProductItem(
   }
 
   if (existingDestinationId && conflictStrategy === "SKIP") {
+    await saveMapping({
+      storeConnectionId,
+      resourceType: "product",
+      sourceId: item.sourceId,
+      destinationId: existingDestinationId,
+      sourceHandle: payload.parent.handle,
+      destinationHandle: payload.parent.handle,
+    });
     await db.migrationItem.update({
       where: { id: item.id },
-      data: { status: "SKIPPED", errorMessage: "Product with this handle already exists on the destination store" },
+      data: {
+        status: "SKIPPED",
+        destinationId: existingDestinationId,
+        errorMessage: "Product with this handle already exists on the destination store",
+      },
     });
     await logEvent(job.id, "WARN", `Skipped product "${payload.parent.handle}" (already exists)`, {
       sourceId: item.sourceId,
