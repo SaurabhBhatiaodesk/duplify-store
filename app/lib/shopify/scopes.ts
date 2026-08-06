@@ -38,6 +38,15 @@ export const PHASE_3_SCOPES = [
   "write_themes",
 ] as const;
 
+// Shopify will not grant these via scopes.request() until Partner Dashboard
+// access is approved. Keep them out of "Update this store" / missing banners
+// so the button does not open a broken blank page.
+export const PROTECTED_SCOPES = ["read_all_orders"] as const;
+
+export function isRequestableScope(scope: string): boolean {
+  return !(PROTECTED_SCOPES as readonly string[]).includes(scope);
+}
+
 // All phases are now requested — Phase 1/2/3 resource types all ship in this
 // build. Bumping this list re-triggers Shopify's scope-consent screen for
 // already-installed shops (handled by the app/scopes_update webhook).
@@ -110,7 +119,11 @@ export function parseGrantedScopes(grantedScope: string): Set<string> {
 
 export function missingRequestedScopes(grantedScope: string): string[] {
   const granted = parseGrantedScopes(grantedScope);
-  return REQUESTED_SCOPES.filter((scope) => !granted.has(scope));
+  // Exclude protected scopes from "blocking" missing checks — merchants
+  // cannot approve them from inside the app until Shopify Partner approves.
+  return REQUESTED_SCOPES.filter(
+    (scope) => !granted.has(scope) && isRequestableScope(scope),
+  );
 }
 
 export function missingScopes(
@@ -119,7 +132,9 @@ export function missingScopes(
 ): string[] {
   const granted = parseGrantedScopes(grantedScope);
   const required = RESOURCE_TYPE_SCOPES[resourceType] ?? [];
-  return required.filter((scope) => !granted.has(scope));
+  return required.filter(
+    (scope) => !granted.has(scope) && isRequestableScope(scope),
+  );
 }
 
 export function missingReadScopes(
@@ -129,6 +144,9 @@ export function missingReadScopes(
   const granted = parseGrantedScopes(grantedScope);
   const required = RESOURCE_TYPE_SCOPES[resourceType] ?? [];
   return required.filter(
-    (scope) => scope.startsWith("read_") && !granted.has(scope),
+    (scope) =>
+      scope.startsWith("read_") &&
+      !granted.has(scope) &&
+      isRequestableScope(scope),
   );
 }

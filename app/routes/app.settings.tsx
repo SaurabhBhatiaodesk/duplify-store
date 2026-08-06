@@ -3,7 +3,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { Form, useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { REQUESTED_SCOPES } from "../lib/shopify/scopes";
+import { REQUESTED_SCOPES, isRequestableScope } from "../lib/shopify/scopes";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -135,8 +135,23 @@ export default function Settings() {
   const revalidator = useRevalidator();
   const grantedScopes = parseScopes(data.scope || "");
   const missingScopes = REQUESTED_SCOPES.filter(
-    (scope) => !grantedScopes.includes(scope),
+    (scope) => !grantedScopes.includes(scope) && isRequestableScope(scope),
   );
+  const scopesFetcher = useFetcher();
+  const isRequestingScopes = scopesFetcher.state !== "idle";
+
+  function requestAllPermissions() {
+    if (missingScopes.length === 0 || isRequestingScopes) return;
+    const form = new FormData();
+    for (const scope of REQUESTED_SCOPES.filter(isRequestableScope)) {
+      form.append("scopes", scope);
+    }
+    form.set("returnTo", "/app/settings");
+    scopesFetcher.submit(form, {
+      method: "post",
+      action: "/api/scopes/request",
+    });
+  }
 
   // "baseline" is the last-saved value the save bar's dirty check compares
   // against — starts from the loader, and is advanced (not the loader data
@@ -243,20 +258,14 @@ export default function Settings() {
                 {data.shopDomain} is missing {missingScopes.length} required
                 permission{missingScopes.length === 1 ? "" : "s"}.
               </s-paragraph>
-              <Form method="post" action="/api/scopes/request">
-                {REQUESTED_SCOPES.map((scope) => (
-                  <input
-                    key={scope}
-                    type="hidden"
-                    name="scopes"
-                    value={scope}
-                  />
-                ))}
-                <input type="hidden" name="returnTo" value="/app/settings" />
-                <s-button slot="primary-action" type="submit" variant="primary">
-                  Grant all permissions
-                </s-button>
-              </Form>
+              <s-button
+                slot="primary-action"
+                variant="primary"
+                loading={isRequestingScopes}
+                onClick={requestAllPermissions}
+              >
+                Grant all permissions
+              </s-button>
             </s-banner>
           )}
 
