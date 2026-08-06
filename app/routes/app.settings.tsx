@@ -4,14 +4,13 @@ import { Form, useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import {
-  REQUESTED_SCOPES,
-  isRequestableScope,
+  PUBLISHED_SCOPES,
   missingRequestedScopes,
   parseGrantedScopes,
 } from "../lib/shopify/scopes";
 
 /** Scopes we show merchants — protected Partner-only scopes stay out. */
-const DISPLAY_SCOPES = REQUESTED_SCOPES.filter(isRequestableScope);
+const DISPLAY_SCOPES = PUBLISHED_SCOPES;
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, scopes } = await authenticate.admin(request);

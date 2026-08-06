@@ -56,6 +56,9 @@ export const REQUESTED_SCOPES = [
   ...PHASE_3_SCOPES,
 ];
 
+/** Scopes declared in shopify.app.toml / OAuth — everything except Partner-gated. */
+export const PUBLISHED_SCOPES = REQUESTED_SCOPES.filter(isRequestableScope);
+
 export const RESOURCE_TYPE_SCOPES: Record<string, readonly string[]> = {
   product: ["read_products", "write_products"],
   variant: ["read_products", "write_products"],

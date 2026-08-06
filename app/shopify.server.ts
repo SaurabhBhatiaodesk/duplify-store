@@ -7,12 +7,14 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 import { encryptToken } from "./lib/crypto/token-cipher";
-import { REQUESTED_SCOPES } from "./lib/shopify/scopes";
+import { PUBLISHED_SCOPES } from "./lib/shopify/scopes";
 
+// Full migration scopes on every install. Railway SCOPES stays as a fallback
+// allow-list; published scopes are the source of truth for what merchants grant.
 const scopes = Array.from(
   new Set([
     ...(process.env.SCOPES?.split(",").map((scope) => scope.trim()).filter(Boolean) ?? []),
-    ...REQUESTED_SCOPES,
+    ...PUBLISHED_SCOPES,
   ]),
 );
 
