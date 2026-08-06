@@ -34,6 +34,7 @@ export default function ConnectStores() {
   const { currentShopDomain, connections } = useLoaderData<typeof loader>();
   const revalidator = useRevalidator();
   const [otherShop, setOtherShop] = useState("");
+  const [copiedInstallUrl, setCopiedInstallUrl] = useState(false);
   // DESTINATION = import into this store; SOURCE = export from this store
   const [currentRole, setCurrentRole] = useState<"DESTINATION" | "SOURCE">(
     "DESTINATION",
@@ -64,6 +65,20 @@ export default function ConnectStores() {
   const otherInstallHref = otherHandle
     ? `https://admin.shopify.com/store/${otherHandle}/oauth/install?client_id=17baeffee1331390a337b79633f40149`
     : "https://admin.shopify.com/oauth/install?client_id=17baeffee1331390a337b79633f40149";
+  const installModalId = "connect-install-url-modal";
+
+  async function copyOtherInstallUrl() {
+    try {
+      await navigator.clipboard.writeText(otherInstallHref);
+      setCopiedInstallUrl(true);
+      window.setTimeout(() => setCopiedInstallUrl(false), 2000);
+    } catch {
+      const input = document.getElementById(
+        `${installModalId}-url`,
+      ) as HTMLInputElement | null;
+      input?.select();
+    }
+  }
 
   const sourceLabel =
     currentRole === "DESTINATION" ? otherShop || "—" : currentShopDomain;
@@ -132,9 +147,13 @@ export default function ConnectStores() {
               {otherHandle && (
                 <s-paragraph>
                   Pehle dusre store par app install karo:{" "}
-                  <s-link href={otherInstallHref} target="_blank">
-                    Install Duplify
-                  </s-link>
+                  <s-button
+                    variant="tertiary"
+                    command="--show"
+                    commandFor={installModalId}
+                  >
+                    Install URL copy karo
+                  </s-button>
                 </s-paragraph>
               )}
 
@@ -144,9 +163,13 @@ export default function ConnectStores() {
                   {"needsInstall" in installPair.data &&
                     installPair.data.needsInstall && (
                       <s-paragraph>
-                        <s-link href={otherInstallHref} target="_blank">
-                          Install Duplify on the other store
-                        </s-link>
+                        <s-button
+                          variant="tertiary"
+                          command="--show"
+                          commandFor={installModalId}
+                        >
+                          Install URL copy karo
+                        </s-button>
                       </s-paragraph>
                     )}
                 </s-banner>
@@ -228,6 +251,46 @@ export default function ConnectStores() {
           </s-stack>
         )}
       </s-section>
+
+      <s-modal id={installModalId} heading="Install Duplify on other store">
+        <s-stack direction="block" gap="base">
+          <s-paragraph>
+            Is URL ko copy karke dusre store ke browser mein paste karo, Install
+            allow karo, app ek baar open karo, phir yahan wapas aake Connect
+            stores dabao.
+          </s-paragraph>
+          <s-text-field
+            id={`${installModalId}-url`}
+            label="Install URL"
+            value={otherInstallHref}
+            readOnly
+          />
+        </s-stack>
+        <s-button
+          slot="primary-action"
+          variant="primary"
+          onClick={() => {
+            void copyOtherInstallUrl();
+          }}
+        >
+          {copiedInstallUrl ? "Copied" : "Copy URL"}
+        </s-button>
+        <s-button
+          slot="secondary-actions"
+          variant="secondary"
+          href={otherInstallHref}
+          target="_blank"
+        >
+          Open link
+        </s-button>
+        <s-button
+          slot="secondary-actions"
+          command="--hide"
+          commandFor={installModalId}
+        >
+          Close
+        </s-button>
+      </s-modal>
     </s-page>
   );
 }
