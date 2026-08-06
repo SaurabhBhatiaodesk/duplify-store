@@ -6,7 +6,7 @@ import {
   PRODUCT_SET_MUTATION,
   type ProductSetInput,
 } from "../../shopify/mutations/products";
-import { getMapping, saveMapping } from "../idMapping.service";
+import { getLiveMapping, saveMapping, deleteMapping, getMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ConflictStrategy, ProductBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
@@ -166,15 +166,36 @@ async function processProductItem(
     data: { status: "PROCESSING", attempt: item.attempt + 1 },
   });
 
-  // Idempotency guard: if a previous (crashed/partial) run already mapped
-  // this product, don't create it a second time.
-  const alreadyMapped = await getMapping(storeConnectionId, "product", item.sourceId);
+  // Only clear child variant mappings when we dropped a stale product mapping.
+  const priorMapping = await getMapping(storeConnectionId, "product", item.sourceId);
+  const alreadyMapped = await getLiveMapping(
+    destAdmin,
+    storeConnectionId,
+    "product",
+    item.sourceId,
+  );
   if (alreadyMapped) {
     await db.migrationItem.update({
       where: { id: item.id },
-      data: { status: "COMPLETED", destinationId: alreadyMapped.destinationId, errorMessage: null },
+      data: {
+        status: "COMPLETED",
+        destinationId: alreadyMapped.destinationId,
+        errorMessage: null,
+      },
     });
     return;
+  }
+
+  if (priorMapping && !alreadyMapped) {
+    await logEvent(
+      job.id,
+      "WARN",
+      `Destination product for "${payload.parent.handle}" was deleted — recreating`,
+      { sourceId: item.sourceId },
+    );
+    for (const variant of payload.variants) {
+      await deleteMapping(storeConnectionId, "variant", variant.id);
+    }
   }
 
   let existingDestinationId: string | null = null;
