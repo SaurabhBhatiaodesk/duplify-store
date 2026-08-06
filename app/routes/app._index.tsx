@@ -10,7 +10,11 @@ import {
 } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
-import { listConnectionsForOwner, refreshShopScopesIfStale } from "../lib/services/storeConnection.service";
+import {
+  hydrateShopFromOfflineSession,
+  listConnectionsForOwner,
+  refreshShopScopesIfStale,
+} from "../lib/services/storeConnection.service";
 import { createMigrationJob } from "../lib/services/migrationJob.service";
 import { countLiveMissingPermissions } from "../lib/services/permissionStatus.server";
 import {
@@ -42,12 +46,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const connections = await listConnectionsForOwner(shop.id);
 
-  // Heal stale/empty scope strings on paired shops (token exists, scope blank)
-  // so Overview does not keep saying "Source store needs Duplify installed".
+  // Heal paired shops: copy offline Session → Shop, then refresh scopes.
   await Promise.all(
     connections.flatMap((connection) => [
-      refreshShopScopesIfStale(connection.sourceShop),
-      refreshShopScopesIfStale(connection.destinationShop),
+      hydrateShopFromOfflineSession(connection.sourceShop.shopDomain).then(
+        () => refreshShopScopesIfStale(connection.sourceShop),
+      ),
+      hydrateShopFromOfflineSession(connection.destinationShop.shopDomain).then(
+        () => refreshShopScopesIfStale(connection.destinationShop),
+      ),
     ]),
   );
   const refreshedConnections = await listConnectionsForOwner(shop.id);
@@ -88,25 +95,21 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return {
     currentShopDomain: session.shop,
     connections: refreshedConnections.map((c) => {
-      const sourceConnected = shopIsConnected(c.sourceShop);
-      const destinationConnected = shopIsConnected(c.destinationShop);
+      const sourceConnected =
+        c.status === "READY" || shopIsConnected(c.sourceShop);
+      const destinationConnected =
+        c.status === "READY" || shopIsConnected(c.destinationShop);
       return {
         id: c.id,
         source: c.sourceShop.shopDomain,
         destination: c.destinationShop.shopDomain,
         status: c.status,
-        // Token present = installed. Do not require a perfect scope string.
+        // READY pair already proved both shops were connected at pair-time.
+        // Never block the merchant with install/permission spam afterwards.
         sourceInstalled: sourceConnected,
         destinationInstalled: destinationConnected,
-        // Connected shops should not block the merchant with permission spam.
-        sourceMissingScopes:
-          sourceConnected || shopCanMigrate(c.sourceShop.scope)
-            ? []
-            : missingRequestedScopes(c.sourceShop.scope),
-        destinationMissingScopes:
-          destinationConnected || shopCanMigrate(c.destinationShop.scope)
-            ? []
-            : missingRequestedScopes(c.destinationShop.scope),
+        sourceMissingScopes: [],
+        destinationMissingScopes: [],
       };
     }),
     jobs: jobs.map((j) => ({
@@ -302,17 +305,22 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { error: "Choose a valid connected store pair." };
   }
 
-  // Token on both sides means install/OAuth already happened — do not bounce
-  // merchants into a second permission flow because of a stale scope string.
-  if (
-    !shopIsConnected(connection.sourceShop) ||
-    !shopIsConnected(connection.destinationShop)
-  ) {
-    return redirect(
-      `/app/connect?permissions=missing&connectionId=${storeConnectionId}`,
-    );
+  // READY connections are already paired — do not bounce into permission UI.
+  if (connection.status !== "READY") {
+    if (
+      !shopIsConnected(connection.sourceShop) ||
+      !shopIsConnected(connection.destinationShop)
+    ) {
+      return redirect(
+        `/app/connect?permissions=missing&connectionId=${storeConnectionId}`,
+      );
+    }
   }
 
+  await Promise.all([
+    hydrateShopFromOfflineSession(connection.sourceShop.shopDomain),
+    hydrateShopFromOfflineSession(connection.destinationShop.shopDomain),
+  ]);
   await Promise.all([
     refreshShopScopesIfStale(connection.sourceShop),
     refreshShopScopesIfStale(connection.destinationShop),

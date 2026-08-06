@@ -47,6 +47,45 @@ export async function syncEmbeddedShopFromSession(session: {
 }
 
 /**
+ * If Shop row is missing a token/scope but Shopify Session storage has an
+ * offline session for that shop, copy it over. This heals pairs where the
+ * merchant opened the app but Shop.scope/token stayed blank.
+ */
+export async function hydrateShopFromOfflineSession(shopDomain: string) {
+  const shop = await db.shop.findUnique({ where: { shopDomain } });
+  const offlineSession =
+    (await db.session.findUnique({
+      where: { id: `offline_${shopDomain}` },
+    })) ??
+    (await db.session.findFirst({
+      where: { shop: shopDomain, isOnline: false },
+    })) ??
+    (await db.session.findFirst({
+      where: { shop: shopDomain },
+    }));
+
+  if (!offlineSession?.accessToken) return shop;
+
+  const scope = offlineSession.scope?.trim() || shop?.scope || "";
+  return db.shop.upsert({
+    where: { shopDomain },
+    create: {
+      shopDomain,
+      accessTokenEncrypted: encryptToken(offlineSession.accessToken),
+      scope,
+      isActive: true,
+      uninstalledAt: null,
+    },
+    update: {
+      accessTokenEncrypted: encryptToken(offlineSession.accessToken),
+      ...(scope ? { scope } : {}),
+      isActive: true,
+      uninstalledAt: null,
+    },
+  });
+}
+
+/**
  * If a paired shop has a token but an empty/stale scope string (common after
  * pairing), refresh scopes from Shopify so Overview stops saying
  * "needs Duplify installed".
@@ -59,6 +98,21 @@ export async function refreshShopScopesIfStale(shop: {
   isActive: boolean;
   uninstalledAt: Date | null;
 }): Promise<string> {
+  // Prefer Session-table token when Shop token is blank.
+  if (!shop.accessTokenEncrypted) {
+    const hydrated = await hydrateShopFromOfflineSession(shop.shopDomain);
+    if (hydrated) {
+      shop = {
+        id: hydrated.id,
+        shopDomain: hydrated.shopDomain,
+        scope: hydrated.scope,
+        accessTokenEncrypted: hydrated.accessTokenEncrypted,
+        isActive: hydrated.isActive,
+        uninstalledAt: hydrated.uninstalledAt,
+      };
+    }
+  }
+
   if (!shop.isActive || shop.uninstalledAt || !shop.accessTokenEncrypted) {
     return shop.scope;
   }

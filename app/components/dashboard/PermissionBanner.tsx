@@ -32,11 +32,30 @@ export function PermissionBanner({
   const installModalId = useId().replace(/:/g, "");
   const [copied, setCopied] = useState(false);
 
-  const hasMissingPermissions = missing.some((m) => m.missing.length > 0);
+  // If the merchant is already inside a shop's Duplify app, that shop is
+  // installed — never ask them to "Install" it again.
+  const effectiveMissing = missing
+    .map((item) => {
+      if (sameShop(currentShopDomain, item.shopDomain)) {
+        return { ...item, installed: true, missing: [] as string[] };
+      }
+      // Connected/installed shops should not block with permission spam.
+      if (item.installed) {
+        return { ...item, missing: [] as string[] };
+      }
+      return item;
+    })
+    .filter((item) => item.missing.length > 0);
+
+  const hasMissingPermissions = effectiveMissing.some(
+    (m) => m.missing.length > 0,
+  );
   if (!hasMissingPermissions) return null;
 
-  const sourceEntry = missing.find((m) => m.shopRole === "source");
-  const destinationEntry = missing.find((m) => m.shopRole !== "source");
+  const sourceEntry = effectiveMissing.find((m) => m.shopRole === "source");
+  const destinationEntry = effectiveMissing.find(
+    (m) => m.shopRole !== "source",
+  );
   const sourceShopDomain = sourceEntry?.shopDomain;
   const destinationShopDomain = destinationEntry?.shopDomain;
   const sourceInstalled = sourceEntry ? sourceEntry.installed !== false : true;
@@ -57,34 +76,31 @@ export function PermissionBanner({
 
   const currentStoreScopes = Array.from(
     new Set(
-      missing
+      effectiveMissing
         .filter((item) => sameShop(currentShopDomain, item.shopDomain))
         .flatMap((item) => item.missing)
         .filter(isRequestableScope),
     ),
   );
 
-  const otherShopDomain =
-    sourceIsCurrent
-      ? destinationNeedsPermissions
-        ? destinationShopDomain
+  const otherShopDomain = sourceIsCurrent
+    ? destinationNeedsPermissions
+      ? destinationShopDomain
+      : undefined
+    : destinationIsCurrent
+      ? sourceNeedsInstall || sourceNeedsPermissions
+        ? sourceShopDomain
         : undefined
-      : destinationIsCurrent
-        ? sourceNeedsInstall || sourceNeedsPermissions
-          ? sourceShopDomain
-          : undefined
-        : sourceShopDomain ?? destinationShopDomain;
+      : (sourceShopDomain ?? destinationShopDomain);
 
   const otherShopHandle = otherShopDomain
     ?.replace(/\.myshopify\.com$/i, "")
     .trim();
   const otherShopHref = otherShopHandle
     ? `https://admin.shopify.com/store/${otherShopHandle}/apps/duplify-store`
-    : sourceShopDomain
-      ? `https://admin.shopify.com/store/${sourceShopDomain.replace(/\.myshopify\.com$/i, "")}/oauth/install?client_id=17baeffee1331390a337b79633f40149`
-      : undefined;
+    : undefined;
   const installHref = sourceShopDomain
-    ? `https://admin.shopify.com/store/${sourceShopDomain.replace(/\.myshopify\.com$/i, "")}/oauth/install?client_id=17baeffee1331390a337b79633f40149`
+    ? `https://admin.shopify.com/store/${sourceShopDomain.replace(/\.myshopify\.com$/i, "")}/apps/duplify-store`
     : undefined;
 
   function requestCurrentScopes() {
@@ -114,22 +130,15 @@ export function PermissionBanner({
   }
 
   const heading = sourceNeedsInstall
-    ? "Source store needs Duplify installed"
-    : sourceNeedsPermissions
-      ? "Source store needs permission update"
-      : "Store update needed";
+    ? "Open Duplify on the source store once"
+    : "Store update needed";
 
-  const message = sourceNeedsInstall && sourceShopDomain
-    ? `Install Duplify Store on ${sourceShopDomain}, open the app once, then return here.`
-    : sourceNeedsPermissions && sourceShopDomain
-      ? sourceIsCurrent
-        ? `Duplify is already installed on ${sourceShopDomain}. Click Update to grant missing permissions.`
-        : `Duplify is installed on ${sourceShopDomain}, but permissions are incomplete. Open that store and update access.`
-      : destinationIsCurrent
-        ? "Update this store's access before importing can start."
-        : `Open ${destinationShopDomain ?? "the destination store"} and update Duplify permissions.`;
+  const message =
+    sourceNeedsInstall && sourceShopDomain
+      ? `${sourceShopDomain} pe Duplify already install ho sakti hai — bas app ek baar open karo taaki connection sync ho jaye. Phir yahan refresh karo.`
+      : "Update this store's access before importing can start.";
 
-  const modalUrl = sourceNeedsInstall ? installHref : otherShopHref;
+  const modalUrl = installHref ?? otherShopHref;
 
   return (
     <>
@@ -149,43 +158,29 @@ export function PermissionBanner({
           </s-button>
         )}
 
-        {sourceNeedsInstall && installHref && (
+        {sourceNeedsInstall && modalUrl && (
           <s-button
-            slot={currentStoreScopes.length > 0 ? "secondary-actions" : "primary-action"}
+            slot={
+              currentStoreScopes.length > 0
+                ? "secondary-actions"
+                : "primary-action"
+            }
             variant={currentStoreScopes.length > 0 ? "secondary" : "primary"}
             command="--show"
             commandFor={installModalId}
           >
-            Install on source store
+            Copy source store app URL
           </s-button>
         )}
-
-        {!sourceNeedsInstall &&
-          currentStoreScopes.length === 0 &&
-          modalUrl && (
-            <s-button
-              slot="primary-action"
-              variant="primary"
-              command="--show"
-              commandFor={installModalId}
-            >
-              Copy other store URL
-            </s-button>
-          )}
       </s-banner>
 
-      {modalUrl && (
-        <s-modal
-          id={installModalId}
-          heading={
-            sourceNeedsInstall ? "Install on source store" : "Open other store"
-          }
-        >
+      {modalUrl && sourceNeedsInstall && (
+        <s-modal id={installModalId} heading="Open source store app">
           <s-stack direction="block" gap="base">
             <s-paragraph>
-              {sourceNeedsInstall
-                ? `Is URL ko copy karke ${sourceShopDomain} ke browser mein paste karo, Install allow karo, app ek baar open karo, phir yahan wapas aao.`
-                : `Is URL ko copy karke dusre store ke browser mein paste karo, Duplify open karo, permissions allow karo, phir yahan refresh karo.`}
+              Is URL ko {sourceShopDomain} ke browser mein paste karo, Duplify
+              app open karo (Install sirf tab agar pehli baar ho), phir is store
+              pe wapas aake page refresh karo.
             </s-paragraph>
             <s-text-field
               id={`${installModalId}-url`}
