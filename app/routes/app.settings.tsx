@@ -6,7 +6,6 @@ import db from "../db.server";
 import {
   PUBLISHED_SCOPES,
   missingRequestedScopes,
-  parseGrantedScopes,
 } from "../lib/shopify/scopes";
 
 /** Scopes we show merchants — protected Partner-only scopes stay out. */
@@ -150,7 +149,6 @@ export default function Settings() {
   const data = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const revalidator = useRevalidator();
-  const grantedScopes = parseGrantedScopes(data.scope || "");
   const missingScopes = missingRequestedScopes(data.scope || "");
 
   // "baseline" is the last-saved value the save bar's dirty check compares
@@ -243,21 +241,22 @@ export default function Settings() {
       <s-section heading="Admin API permissions">
         <s-stack direction="block" gap="base">
           <s-paragraph>
-            Permission status is checked from each store's current OAuth token.
+            Duplify installs with full migration access. Write permission also
+            covers the matching read permission — merchants should not need to
+            re-approve the same data twice.
           </s-paragraph>
+
           {missingScopes.length === 0 ? (
             <s-banner
               tone="success"
-              heading={`All required permissions ready for ${data.shopDomain}`}
+              heading="Ready — all required permissions are in place"
             >
-              This store can run scans and migrations. Write access also covers
-              the matching read permissions.
+              {data.shopDomain} can run scans and migrations now.
             </s-banner>
           ) : (
-            <s-banner tone="warning" heading="Permissions need approval">
+            <s-banner tone="warning" heading="A few permissions still need approval">
               <s-paragraph>
-                {data.shopDomain} is missing {missingScopes.length} required
-                permission{missingScopes.length === 1 ? "" : "s"}.
+                Missing: {missingScopes.join(", ")}
               </s-paragraph>
               <Form method="post" action="/api/scopes/request">
                 {missingScopes.map((scope) => (
@@ -284,7 +283,6 @@ export default function Settings() {
             <s-table-header-row>
               <s-table-header listSlot="primary">Store</s-table-header>
               <s-table-header listSlot="labeled">Role</s-table-header>
-              <s-table-header listSlot="labeled">Granted</s-table-header>
               <s-table-header listSlot="labeled">Status</s-table-header>
               <s-table-header>Action</s-table-header>
             </s-table-header-row>
@@ -301,26 +299,23 @@ export default function Settings() {
                   </s-table-cell>
                   <s-table-cell>{store.roles.join(", ")}</s-table-cell>
                   <s-table-cell>
-                    {store.grantedCount} / {store.requiredCount}
-                  </s-table-cell>
-                  <s-table-cell>
                     <s-badge
                       tone={
                         store.missingScopes.length === 0 ? "success" : "warning"
                       }
                     >
                       {store.missingScopes.length === 0
-                        ? "All granted"
-                        : `${store.missingScopes.length} missing`}
+                        ? "Ready"
+                        : "Needs update"}
                     </s-badge>
                   </s-table-cell>
                   <s-table-cell>
                     {!store.isCurrent && store.missingScopes.length > 0 ? (
                       <s-link
-                        href={`https://admin.shopify.com/store/${store.shopDomain.replace(/\.myshopify\.com$/i, "")}/oauth/install?client_id=17baeffee1331390a337b79633f40149`}
+                        href={`https://admin.shopify.com/store/${store.shopDomain.replace(/\.myshopify\.com$/i, "")}/apps/duplify-store`}
                         target="_blank"
                       >
-                        Reinstall on store
+                        Open store app
                       </s-link>
                     ) : (
                       <s-text color="subdued">-</s-text>
@@ -330,29 +325,6 @@ export default function Settings() {
               ))}
             </s-table-body>
           </s-table>
-
-          <s-banner
-            tone="info"
-            heading="Optional Partner approvals"
-          >
-            <s-paragraph>
-              Normal migrations work with the permissions above. Full order
-              history (older than 60 days) needs Shopify Partner approval for
-              read_all_orders — that is a Shopify review, not an app bug.
-            </s-paragraph>
-          </s-banner>
-
-          <s-text type="strong">Current store scope details</s-text>
-          <s-stack direction="inline" gap="small-200">
-            {DISPLAY_SCOPES.map((scope) => (
-              <s-badge
-                key={scope}
-                tone={grantedScopes.has(scope) ? "success" : "warning"}
-              >
-                {scope}
-              </s-badge>
-            ))}
-          </s-stack>
         </s-stack>
       </s-section>
 
