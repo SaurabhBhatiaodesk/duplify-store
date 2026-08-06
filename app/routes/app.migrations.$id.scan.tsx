@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { LoaderFunctionArgs } from "react-router";
-import { Form, useFetcher, useLoaderData, useRevalidator } from "react-router";
+import { Form, redirect, useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import type { ScanSummary } from "../lib/services/scan.service";
@@ -12,6 +12,7 @@ import {
   liveMissingAppPermissions,
   needsPermissionRescan,
 } from "../lib/services/permissionStatus.server";
+import { migrationJobForShopWhere } from "../lib/services/storeConnection.service";
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -19,12 +20,15 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     where: { shopDomain: session.shop },
   });
 
-  const job = await db.migrationJob.findFirstOrThrow({
-    where: { id: params.id, storeConnection: { ownerShopId: shop.id } },
+  const job = await db.migrationJob.findFirst({
+    where: migrationJobForShopWhere(params.id!, shop.id),
     include: {
       storeConnection: { include: { sourceShop: true, destinationShop: true } },
     },
   });
+  if (!job) {
+    throw redirect("/app/migrations");
+  }
 
   const [failureLogs, failedGroups] =
     job.status === "FAILED"

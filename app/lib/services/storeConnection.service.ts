@@ -14,7 +14,14 @@ export async function getOrCreateShop(shopDomain: string) {
 
 export async function listConnectionsForOwner(ownerShopId: string) {
   return db.storeConnection.findMany({
-    where: { ownerShopId, status: { not: "ARCHIVED" } },
+    where: {
+      status: { not: "ARCHIVED" },
+      OR: [
+        { ownerShopId },
+        { sourceShopId: ownerShopId },
+        { destinationShopId: ownerShopId },
+      ],
+    },
     include: { sourceShop: true, destinationShop: true },
     orderBy: { createdAt: "desc" },
   });
@@ -25,4 +32,18 @@ export async function getConnection(id: string) {
     where: { id },
     include: { sourceShop: true, destinationShop: true },
   });
+}
+
+/** Either store in a pair (or the connection owner) can open migration pages. */
+export function migrationJobForShopWhere(jobId: string, shopId: string) {
+  return {
+    id: jobId,
+    storeConnection: {
+      OR: [
+        { ownerShopId: shopId },
+        { sourceShopId: shopId },
+        { destinationShopId: shopId },
+      ],
+    },
+  };
 }

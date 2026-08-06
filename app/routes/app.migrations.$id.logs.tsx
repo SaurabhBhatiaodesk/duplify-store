@@ -1,16 +1,20 @@
 import type { LoaderFunctionArgs } from "react-router";
-import { Form, useLoaderData, useSearchParams } from "react-router";
+import { Form, redirect, useLoaderData, useSearchParams } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
+import { migrationJobForShopWhere } from "../lib/services/storeConnection.service";
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = await db.shop.findUniqueOrThrow({ where: { shopDomain: session.shop } });
 
-  const job = await db.migrationJob.findFirstOrThrow({
-    where: { id: params.id, storeConnection: { ownerShopId: shop.id } },
+  const job = await db.migrationJob.findFirst({
+    where: migrationJobForShopWhere(params.id!, shop.id),
     include: { storeConnection: { include: { sourceShop: true, destinationShop: true } } },
   });
+  if (!job) {
+    throw redirect("/app/migrations");
+  }
 
   const url = new URL(request.url);
   const level = url.searchParams.get("level") || undefined;

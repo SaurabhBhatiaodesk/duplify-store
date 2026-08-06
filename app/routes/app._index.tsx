@@ -250,7 +250,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   const connection = await db.storeConnection.findFirst({
-    where: { id: storeConnectionId, ownerShopId: shop.id },
+    where: {
+      id: storeConnectionId,
+      OR: [
+        { ownerShopId: shop.id },
+        { sourceShopId: shop.id },
+        { destinationShopId: shop.id },
+      ],
+    },
     include: { sourceShop: true, destinationShop: true },
   });
   if (!connection) {
