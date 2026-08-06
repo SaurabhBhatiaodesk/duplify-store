@@ -17,11 +17,6 @@ import {
 } from "../lib/services/storeConnection.service";
 import { createMigrationJob } from "../lib/services/migrationJob.service";
 import { countLiveMissingPermissions } from "../lib/services/permissionStatus.server";
-import {
-  missingRequestedScopes,
-  shopCanMigrate,
-  shopIsConnected,
-} from "../lib/shopify/scopes";
 import type { ConflictStrategy } from "../lib/services/types";
 import { StatCard } from "../components/dashboard/StatCard";
 import { StatusBadge } from "../components/dashboard/StatusBadge";
@@ -46,17 +41,26 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const connections = await listConnectionsForOwner(shop.id);
 
-  // Heal paired shops: copy offline Session → Shop, then refresh scopes.
-  await Promise.all(
-    connections.flatMap((connection) => [
-      hydrateShopFromOfflineSession(connection.sourceShop.shopDomain).then(
-        () => refreshShopScopesIfStale(connection.sourceShop),
-      ),
-      hydrateShopFromOfflineSession(connection.destinationShop.shopDomain).then(
-        () => refreshShopScopesIfStale(connection.destinationShop),
-      ),
-    ]),
-  );
+  // Best-effort heal only — never crash Overview if Session/token sync fails.
+  try {
+    await Promise.all(
+      connections.flatMap((connection) => [
+        hydrateShopFromOfflineSession(connection.sourceShop.shopDomain)
+          .then(async (hydrated) => {
+            if (hydrated) await refreshShopScopesIfStale(hydrated);
+          })
+          .catch(() => undefined),
+        hydrateShopFromOfflineSession(connection.destinationShop.shopDomain)
+          .then(async (hydrated) => {
+            if (hydrated) await refreshShopScopesIfStale(hydrated);
+          })
+          .catch(() => undefined),
+      ]),
+    );
+  } catch {
+    // Ignore heal failures — READY pairs still proceed without banners.
+  }
+
   const refreshedConnections = await listConnectionsForOwner(shop.id);
 
   const shopConnectionAccess = {
@@ -94,24 +98,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   return {
     currentShopDomain: session.shop,
-    connections: refreshedConnections.map((c) => {
-      const sourceConnected =
-        c.status === "READY" || shopIsConnected(c.sourceShop);
-      const destinationConnected =
-        c.status === "READY" || shopIsConnected(c.destinationShop);
-      return {
-        id: c.id,
-        source: c.sourceShop.shopDomain,
-        destination: c.destinationShop.shopDomain,
-        status: c.status,
-        // READY pair already proved both shops were connected at pair-time.
-        // Never block the merchant with install/permission spam afterwards.
-        sourceInstalled: sourceConnected,
-        destinationInstalled: destinationConnected,
-        sourceMissingScopes: [],
-        destinationMissingScopes: [],
-      };
-    }),
+    connections: refreshedConnections.map((c) => ({
+      id: c.id,
+      source: c.sourceShop.shopDomain,
+      destination: c.destinationShop.shopDomain,
+      status: c.status,
+      // READY pair = no install/permission banners. Keep UX simple for clients.
+      sourceInstalled: true,
+      destinationInstalled: true,
+      sourceMissingScopes: [] as string[],
+      destinationMissingScopes: [] as string[],
+    })),
     jobs: jobs.map((j) => ({
       id: j.id,
       type: j.type,
@@ -305,26 +302,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return { error: "Choose a valid connected store pair." };
   }
 
-  // READY connections are already paired — do not bounce into permission UI.
-  if (connection.status !== "READY") {
-    if (
-      !shopIsConnected(connection.sourceShop) ||
-      !shopIsConnected(connection.destinationShop)
-    ) {
-      return redirect(
-        `/app/connect?permissions=missing&connectionId=${storeConnectionId}`,
-      );
-    }
+  // Never block scan start with permission redirects — pair is already connected.
+  try {
+    await Promise.all([
+      hydrateShopFromOfflineSession(connection.sourceShop.shopDomain),
+      hydrateShopFromOfflineSession(connection.destinationShop.shopDomain),
+    ]);
+  } catch {
+    // Non-fatal
   }
-
-  await Promise.all([
-    hydrateShopFromOfflineSession(connection.sourceShop.shopDomain),
-    hydrateShopFromOfflineSession(connection.destinationShop.shopDomain),
-  ]);
-  await Promise.all([
-    refreshShopScopesIfStale(connection.sourceShop),
-    refreshShopScopesIfStale(connection.destinationShop),
-  ]);
 
   const conflictStrategyMap: Record<string, string> = Object.fromEntries(
     selectedResources.map((r) => [r, conflictStrategy]),

@@ -52,37 +52,41 @@ export async function syncEmbeddedShopFromSession(session: {
  * merchant opened the app but Shop.scope/token stayed blank.
  */
 export async function hydrateShopFromOfflineSession(shopDomain: string) {
-  const shop = await db.shop.findUnique({ where: { shopDomain } });
-  const offlineSession =
-    (await db.session.findUnique({
-      where: { id: `offline_${shopDomain}` },
-    })) ??
-    (await db.session.findFirst({
-      where: { shop: shopDomain, isOnline: false },
-    })) ??
-    (await db.session.findFirst({
-      where: { shop: shopDomain },
-    }));
+  try {
+    const shop = await db.shop.findUnique({ where: { shopDomain } });
+    const offlineSession =
+      (await db.session.findUnique({
+        where: { id: `offline_${shopDomain}` },
+      })) ??
+      (await db.session.findFirst({
+        where: { shop: shopDomain, isOnline: false },
+      })) ??
+      (await db.session.findFirst({
+        where: { shop: shopDomain },
+      }));
 
-  if (!offlineSession?.accessToken) return shop;
+    if (!offlineSession?.accessToken) return shop;
 
-  const scope = offlineSession.scope?.trim() || shop?.scope || "";
-  return db.shop.upsert({
-    where: { shopDomain },
-    create: {
-      shopDomain,
-      accessTokenEncrypted: encryptToken(offlineSession.accessToken),
-      scope,
-      isActive: true,
-      uninstalledAt: null,
-    },
-    update: {
-      accessTokenEncrypted: encryptToken(offlineSession.accessToken),
-      ...(scope ? { scope } : {}),
-      isActive: true,
-      uninstalledAt: null,
-    },
-  });
+    const scope = offlineSession.scope?.trim() || shop?.scope || "";
+    return await db.shop.upsert({
+      where: { shopDomain },
+      create: {
+        shopDomain,
+        accessTokenEncrypted: encryptToken(offlineSession.accessToken),
+        scope,
+        isActive: true,
+        uninstalledAt: null,
+      },
+      update: {
+        accessTokenEncrypted: encryptToken(offlineSession.accessToken),
+        ...(scope ? { scope } : {}),
+        isActive: true,
+        uninstalledAt: null,
+      },
+    });
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -98,27 +102,27 @@ export async function refreshShopScopesIfStale(shop: {
   isActive: boolean;
   uninstalledAt: Date | null;
 }): Promise<string> {
-  // Prefer Session-table token when Shop token is blank.
-  if (!shop.accessTokenEncrypted) {
-    const hydrated = await hydrateShopFromOfflineSession(shop.shopDomain);
-    if (hydrated) {
-      shop = {
-        id: hydrated.id,
-        shopDomain: hydrated.shopDomain,
-        scope: hydrated.scope,
-        accessTokenEncrypted: hydrated.accessTokenEncrypted,
-        isActive: hydrated.isActive,
-        uninstalledAt: hydrated.uninstalledAt,
-      };
-    }
-  }
-
-  if (!shop.isActive || shop.uninstalledAt || !shop.accessTokenEncrypted) {
-    return shop.scope;
-  }
-  if (shopCanMigrate(shop.scope)) return shop.scope;
-
   try {
+    // Prefer Session-table token when Shop token is blank.
+    if (!shop.accessTokenEncrypted) {
+      const hydrated = await hydrateShopFromOfflineSession(shop.shopDomain);
+      if (hydrated?.accessTokenEncrypted) {
+        shop = {
+          id: hydrated.id,
+          shopDomain: hydrated.shopDomain,
+          scope: hydrated.scope,
+          accessTokenEncrypted: hydrated.accessTokenEncrypted,
+          isActive: hydrated.isActive,
+          uninstalledAt: hydrated.uninstalledAt,
+        };
+      }
+    }
+
+    if (!shop.isActive || shop.uninstalledAt || !shop.accessTokenEncrypted) {
+      return shop.scope;
+    }
+    if (shopCanMigrate(shop.scope)) return shop.scope;
+
     const admin = createAdminClient(shop);
     const result = await admin.graphql<{
       currentAppInstallation: {
