@@ -20,6 +20,7 @@ import { StatusBadge } from "../components/dashboard/StatusBadge";
 import { EmptyState } from "../components/shared/EmptyState";
 import { ConfirmDestructiveModal } from "../components/shared/ConfirmDestructiveModal";
 import { PermissionBanner } from "../components/dashboard/PermissionBanner";
+import type { action as installPairAction } from "./api.connections.install-pair";
 import type { action as manualConnectAction } from "./api.connections.manual-connect";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -46,20 +47,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export default function ConnectStores() {
-  const { currentShopDomain, requiredScopes, connections } =
-    useLoaderData<typeof loader>();
+  const { currentShopDomain, connections } = useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
   const revalidator = useRevalidator();
-  const currentRole: "DESTINATION" = "DESTINATION";
   const [otherShop, setOtherShop] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState("");
 
+  const installPair = useFetcher<typeof installPairAction>();
   const manualConnect = useFetcher<typeof manualConnectAction>();
+  const isPairing = installPair.state !== "idle";
   const isConnecting = manualConnect.state !== "idle";
   const shopify = useAppBridge();
   const [isCopyingLink, setIsCopyingLink] = useState(false);
-  const [showTokenConnect, setShowTokenConnect] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const permissionConnection = connections.find(
     (connection) => connection.id === searchParams.get("connectionId"),
   );
@@ -95,13 +96,20 @@ export default function ConnectStores() {
   }, [revalidator]);
 
   useEffect(() => {
+    if (installPair.state === "idle" && installPair.data?.ok) {
+      setOtherShop("");
+      shopify.toast.show("Source store connected");
+      revalidator.revalidate();
+    }
+  }, [installPair.state, installPair.data, revalidator, shopify]);
+
+  useEffect(() => {
     if (manualConnect.state === "idle" && manualConnect.data?.ok) {
       setOtherShop("");
       setAccessToken("");
+      revalidator.revalidate();
     }
-  }, [manualConnect.state, manualConnect.data]);
-
-  const otherRole = currentRole === "DESTINATION" ? "SOURCE" : "DESTINATION";
+  }, [manualConnect.state, manualConnect.data, revalidator]);
 
   function validatedDomain(): string | null {
     const domain = otherShop.trim().toLowerCase();
@@ -120,7 +128,7 @@ export default function ConnectStores() {
     setIsCopyingLink(true);
     try {
       const response = await fetch(
-        `/api/connections/external-link?shop=${encodeURIComponent(domain)}&role=${otherRole}`,
+        `/api/connections/external-link?shop=${encodeURIComponent(domain)}&role=SOURCE`,
       );
       const data = (await response.json()) as { url?: string; error?: string };
       if (!data.url) {
@@ -137,6 +145,14 @@ export default function ConnectStores() {
       setIsCopyingLink(false);
     }
   }
+
+  const sourceHandle = otherShop
+    .trim()
+    .toLowerCase()
+    .replace(/\.myshopify\.com$/, "");
+  const sourceInstallHref = sourceHandle
+    ? `https://admin.shopify.com/store/${sourceHandle}/oauth/install?client_id=17baeffee1331390a337b79633f40149`
+    : "https://admin.shopify.com/oauth/install?client_id=17baeffee1331390a337b79633f40149";
 
   return (
     <s-page heading="Set up your import" inlineSize="large">
@@ -157,73 +173,72 @@ export default function ConnectStores() {
       <s-section heading="Destination store">
         <s-stack direction="block" gap="base">
           <s-paragraph>
-            <s-text>{currentShopDomain}</s-text> is the store you are using now.
-            Data from the other store will be copied into this store.
+            <s-text type="strong">{currentShopDomain}</s-text> is where data will
+            be imported.
           </s-paragraph>
         </s-stack>
       </s-section>
+
       <s-section heading="Step 1: Connect source store">
         <s-stack direction="block" gap="base">
-          <s-paragraph>
-            Enter the source store domain and paste its Admin API access token.
-            This is the simplest connect method.
-          </s-paragraph>
+          <s-banner tone="info" heading="Easiest way">
+            <s-paragraph>
+              1. Install Duplify Store on the source store and open the app once.
+              <br />
+              2. Come back here and enter that store domain.
+              <br />
+              3. Click Connect — we use the access from install. No custom app
+              token needed.
+            </s-paragraph>
+          </s-banner>
 
-          <manualConnect.Form
+          <installPair.Form
             method="post"
-            action="/api/connections/manual-connect"
+            action="/api/connections/install-pair"
           >
-            <input type="hidden" name="ownerRole" value={currentRole} />
             <s-stack direction="block" gap="base">
               <s-text-field
-                name="shopDomain"
+                name="sourceShopDomain"
                 label="Source store domain"
                 placeholder="source-store.myshopify.com"
                 value={otherShop}
                 onChange={(e) => setOtherShop(e.currentTarget.value)}
                 error={error ?? undefined}
               ></s-text-field>
-              <s-password-field
-                name="accessToken"
-                label="Admin API access token"
-                placeholder="shpat_..."
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.currentTarget.value)}
-              ></s-password-field>
-              {manualConnect.data && !manualConnect.data.ok && (
+              {installPair.data && !installPair.data.ok && (
                 <s-banner tone="critical" heading="Couldn't connect">
-                  <s-paragraph>{manualConnect.data.error}</s-paragraph>
-                </s-banner>
-              )}
-              {manualConnect.data?.ok && (
-                <s-banner tone="success" heading="Store connected">
-                  {"warning" in manualConnect.data &&
-                    manualConnect.data.warning && (
-                      <s-paragraph>{manualConnect.data.warning}</s-paragraph>
+                  <s-paragraph>{installPair.data.error}</s-paragraph>
+                  {"needsInstall" in installPair.data &&
+                    installPair.data.needsInstall && (
+                      <s-paragraph>
+                        <s-link href={sourceInstallHref} target="_blank">
+                          Install Duplify on source store
+                        </s-link>
+                      </s-paragraph>
                     )}
                 </s-banner>
+              )}
+              {installPair.data?.ok && (
+                <s-banner tone="success" heading="Source store connected" />
               )}
               <s-button
                 type="submit"
                 variant="primary"
-                {...(isConnecting ? { loading: true } : {})}
+                {...(isPairing ? { loading: true } : {})}
               >
                 Connect source store
               </s-button>
             </s-stack>
-          </manualConnect.Form>
+          </installPair.Form>
 
-          <s-button onClick={() => setShowTokenConnect((value) => !value)}>
-            {showTokenConnect
-              ? "Hide approval link option"
-              : "Use approval link instead"}
+          <s-button onClick={() => setShowAdvanced((value) => !value)}>
+            {showAdvanced ? "Hide other options" : "Other connect options"}
           </s-button>
 
-          {showTokenConnect && (
+          {showAdvanced && (
             <s-stack direction="block" gap="base">
               <s-paragraph>
-                Copy an approval link and open it while signed in to the source
-                store.
+                Approval link (if source store cannot install the app yet):
               </s-paragraph>
               <s-button
                 onClick={copyConnectLink}
@@ -231,6 +246,47 @@ export default function ConnectStores() {
               >
                 Copy source approval link
               </s-button>
+
+              <s-paragraph>
+                Legacy Admin API token (only if you already have an old{" "}
+                <s-text type="strong">shpat_</s-text> token):
+              </s-paragraph>
+              <manualConnect.Form
+                method="post"
+                action="/api/connections/manual-connect"
+              >
+                <input type="hidden" name="ownerRole" value="DESTINATION" />
+                <s-stack direction="block" gap="base">
+                  <s-text-field
+                    name="shopDomain"
+                    label="Source store domain"
+                    placeholder="source-store.myshopify.com"
+                    value={otherShop}
+                    onChange={(e) => setOtherShop(e.currentTarget.value)}
+                  ></s-text-field>
+                  <s-password-field
+                    name="accessToken"
+                    label="Admin API access token"
+                    placeholder="shpat_..."
+                    value={accessToken}
+                    onChange={(e) => setAccessToken(e.currentTarget.value)}
+                  ></s-password-field>
+                  {manualConnect.data && !manualConnect.data.ok && (
+                    <s-banner tone="critical" heading="Couldn't connect">
+                      <s-paragraph>{manualConnect.data.error}</s-paragraph>
+                    </s-banner>
+                  )}
+                  {manualConnect.data?.ok && (
+                    <s-banner tone="success" heading="Store connected" />
+                  )}
+                  <s-button
+                    type="submit"
+                    {...(isConnecting ? { loading: true } : {})}
+                  >
+                    Connect with legacy token
+                  </s-button>
+                </s-stack>
+              </manualConnect.Form>
             </s-stack>
           )}
         </s-stack>
@@ -283,10 +339,10 @@ export default function ConnectStores() {
                             )}
                             {c.status === "READY" &&
                               missingPermissionCount === 0 && (
-                              <s-link href={`/app?connectionId=${c.id}`}>
-                                Start migration
-                              </s-link>
-                            )}
+                                <s-link href={`/app?connectionId=${c.id}`}>
+                                  Start migration
+                                </s-link>
+                              )}
                             {missingPermissionCount > 0 && (
                               <s-link
                                 href={`/app/connect?permissions=missing&connectionId=${c.id}`}
