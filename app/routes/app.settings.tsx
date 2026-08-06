@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { Form, useFetcher, useLoaderData, useRevalidator } from "react-router";
-import { SaveBar, useAppBridge } from "@shopify/app-bridge-react";
+import { SaveBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { REQUESTED_SCOPES } from "../lib/shopify/scopes";
@@ -130,7 +130,6 @@ export default function Settings() {
   const data = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const revalidator = useRevalidator();
-  const shopify = useAppBridge();
   const grantedScopes = parseScopes(data.scope || "");
   const missingScopes = REQUESTED_SCOPES.filter(
     (scope) => !grantedScopes.includes(scope),

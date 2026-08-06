@@ -403,7 +403,7 @@ export default function MigrationScan() {
                   <s-paragraph>
                     The store permissions were updated after this scan. Run the
                     scan again so counts, conflicts, and permission checks use
-                    the latest access token.
+                    the latest store access.
                   </s-paragraph>
                   <Form method="post" action={`/api/migrations/${job.id}/scan`}>
                     <s-button type="submit" variant="primary">
