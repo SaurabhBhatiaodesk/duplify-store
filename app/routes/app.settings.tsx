@@ -186,29 +186,6 @@ export default function Settings() {
 
   const [savedBannerDismissed, setSavedBannerDismissed] = useState(false);
 
-  async function copyApprovalLink(
-    shopDomain: string,
-    roles: Array<"Source" | "Destination">,
-  ) {
-    const role = roles.includes("Source") ? "SOURCE" : "DESTINATION";
-    try {
-      const response = await fetch(
-        `/api/connections/external-link?shop=${encodeURIComponent(shopDomain)}&role=${role}`,
-      );
-      const data = (await response.json()) as { url?: string; error?: string };
-      if (!data.url) {
-        shopify.toast.show(data.error ?? "Could not create an approval link", {
-          isError: true,
-        });
-        return;
-      }
-      await navigator.clipboard.writeText(data.url);
-      shopify.toast.show("Approval link copied");
-    } catch {
-      shopify.toast.show("Could not copy the approval link", { isError: true });
-    }
-  }
-
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data?.saved) {
       setBaseline({ notificationEmail, timezone, defaultConflictStrategy });
@@ -317,14 +294,12 @@ export default function Settings() {
                   </s-table-cell>
                   <s-table-cell>
                     {!store.isCurrent && store.missingScopes.length > 0 ? (
-                      <s-button
-                        variant="secondary"
-                        onClick={() =>
-                          copyApprovalLink(store.shopDomain, store.roles)
-                        }
+                      <s-link
+                        href={`https://admin.shopify.com/store/${store.shopDomain.replace(/\.myshopify\.com$/i, "")}/oauth/install?client_id=17baeffee1331390a337b79633f40149`}
+                        target="_blank"
                       >
-                        Copy approval link
-                      </s-button>
+                        Reinstall on store
+                      </s-link>
                     ) : (
                       <s-text color="subdued">-</s-text>
                     )}
