@@ -21,9 +21,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return redirect("/app/connect");
   }
 
-  // Archiving (not deleting) preserves migration history/ID mappings for
-  // this pair — matches the audit-retention approach used elsewhere (see
-  // webhooks.app.uninstalled.tsx).
+  // Soft-disconnect: archive the pair so it disappears from Connected stores.
+  // Migrated Shopify data is left untouched on both stores.
   await db.storeConnection.update({
     where: { id: connection.id },
     data: { status: "ARCHIVED" },

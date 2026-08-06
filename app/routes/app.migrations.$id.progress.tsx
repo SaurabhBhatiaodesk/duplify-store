@@ -463,15 +463,9 @@ export default function MigrationProgress() {
               message="Records already completed will stay on the destination store. Anything still pending will stop being processed."
               confirmLabel="Cancel migration"
               triggerLabel="Cancel migration"
-              formId="cancel-form"
+              formAction={`/api/migrations/${job.id}/cancel`}
             />
           )}
-          <Form
-            method="post"
-            action={`/api/migrations/${job.id}/cancel`}
-            id="cancel-form"
-            style={{ display: "none" }}
-          />
 
           {job.failedRecords > 0 && (
             <s-button

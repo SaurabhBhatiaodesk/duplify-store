@@ -4,30 +4,27 @@
   message: string;
   confirmLabel: string;
   triggerLabel: string;
-  /** id of a <form> elsewhere on the page that the confirm button submits. */
-  formId?: string;
+  /** POST action URL for the confirm submit. */
+  formAction: string;
   triggerVariant?: "primary" | "secondary" | "tertiary";
-  triggerIcon?: string;
-  triggerAccessibilityLabel?: string;
   disabled?: boolean;
 }
 
-// Polaris web components expose modal show/hide via the platform's
-// command/commandFor invoker pattern (a <s-button command="--show"
-// commandFor="my-modal"> opens <s-modal id="my-modal">) rather than React
-// state, so this needs no open/close logic of its own.
+// Polaris web components expose modal show/hide via command/commandFor.
+// Confirm uses a hidden form + requestSubmit — associating via the HTML
+// `form` attribute on s-button was unreliable and hid the primary action.
 export function ConfirmDestructiveModal({
   id,
   heading,
   message,
   confirmLabel,
   triggerLabel,
-  formId,
+  formAction,
   triggerVariant = "secondary",
-  triggerIcon,
-  triggerAccessibilityLabel,
   disabled = false,
 }: ConfirmDestructiveModalProps) {
+  const formId = `${id}-form`;
+
   return (
     <>
       <s-button
@@ -36,20 +33,24 @@ export function ConfirmDestructiveModal({
         variant={triggerVariant}
         tone="critical"
         disabled={disabled}
-        {...(triggerIcon ? { icon: triggerIcon as never } : {})}
-        {...(triggerAccessibilityLabel ? { accessibilityLabel: triggerAccessibilityLabel } : {})}
       >
         {triggerLabel}
       </s-button>
+
+      <form id={formId} method="post" action={formAction} hidden />
+
       <s-modal id={id} heading={heading}>
         <s-paragraph>{message}</s-paragraph>
         <s-button
           slot="primary-action"
-          command="--hide"
-          commandFor={id}
           tone="critical"
-          type={formId ? "submit" : "button"}
-          {...(formId ? { form: formId } : {})}
+          variant="primary"
+          onClick={() => {
+            const form = document.getElementById(
+              formId,
+            ) as HTMLFormElement | null;
+            form?.requestSubmit();
+          }}
         >
           {confirmLabel}
         </s-button>

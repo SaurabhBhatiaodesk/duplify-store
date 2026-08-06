@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { LoaderFunctionArgs } from "react-router";
-import {
-  Form,
-  useFetcher,
-  useLoaderData,
-  useRevalidator,
-} from "react-router";
+import { useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
@@ -182,7 +177,6 @@ export default function ConnectStores() {
           <s-stack direction="block" gap="base">
             {connections.map((c) => {
               const modalId = `disconnect-modal-${c.id}`;
-              const formId = `disconnect-form-${c.id}`;
               return (
                 <s-box
                   key={c.id}
@@ -223,17 +217,11 @@ export default function ConnectStores() {
                           message={`This won't delete anything already migrated between ${c.source} and ${c.destination}.`}
                           confirmLabel="Disconnect"
                           triggerLabel="Disconnect"
-                          formId={formId}
+                          formAction={`/api/connections/${c.id}/disconnect`}
                         />
                       </s-grid-item>
                     </s-grid>
                   </s-stack>
-                  <Form
-                    method="post"
-                    action={`/api/connections/${c.id}/disconnect`}
-                    id={formId}
-                    style={{ display: "none" }}
-                  />
                 </s-box>
               );
             })}

@@ -20,9 +20,33 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
 
   const url = new URL(request.url);
-  const status = url.searchParams.get("status") || undefined;
-  const type = url.searchParams.get("type") || undefined;
+  const statusRaw = url.searchParams.get("status") || "";
+  const typeRaw = url.searchParams.get("type") || "";
   const search = url.searchParams.get("q") || undefined;
+
+  const VALID_STATUSES = new Set([
+    "DRAFT",
+    "SCANNING",
+    "SCANNED",
+    "QUEUED",
+    "RUNNING",
+    "PAUSED",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+  ]);
+  const VALID_TYPES = new Set([
+    "FULL",
+    "PRODUCTS",
+    "COLLECTIONS",
+    "CUSTOMERS",
+    "CONTENT",
+    "THEME",
+    "CUSTOM",
+  ]);
+
+  const status = VALID_STATUSES.has(statusRaw) ? statusRaw : undefined;
+  const type = VALID_TYPES.has(typeRaw) ? typeRaw : undefined;
 
   const rawJobs = await listMigrationJobs({
     ownerShopId: shop.id,
@@ -141,9 +165,9 @@ export default function MigrationHistory() {
               <s-select
                 name="status"
                 label="Status"
-                value={searchParams.get("status") ?? ""}
+                value={searchParams.get("status") || "ALL"}
               >
-                <s-option value="">Any status</s-option>
+                <s-option value="ALL">Any status</s-option>
                 <s-option value="RUNNING">Running</s-option>
                 <s-option value="COMPLETED">Completed</s-option>
                 <s-option value="FAILED">Failed</s-option>
@@ -154,9 +178,9 @@ export default function MigrationHistory() {
               <s-select
                 name="type"
                 label="Type"
-                value={searchParams.get("type") ?? ""}
+                value={searchParams.get("type") || "ALL"}
               >
-                <s-option value="">Any type</s-option>
+                <s-option value="ALL">Any type</s-option>
                 <s-option value="FULL">Full store</s-option>
                 <s-option value="PRODUCTS">Products</s-option>
                 <s-option value="COLLECTIONS">Collections</s-option>
