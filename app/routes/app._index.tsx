@@ -422,8 +422,12 @@ export default function Overview() {
   const hasOrderLimitation = selectedResources.includes("orders");
   const showLimitationsBanner =
     !limitationsDismissed &&
-    (hasThemeLimitation || hasDiscountLimitation || hasOrderLimitation);
-  const limitationsHeading = "Migration limitations";
+    (type === "FULL" ||
+      hasThemeLimitation ||
+      hasDiscountLimitation ||
+      hasOrderLimitation);
+  const limitationsHeading =
+    type === "FULL" ? "Full store — important limitations" : "Migration limitations";
   const needsThemePicker = hasThemeLimitation;
 
   const themesFetcher = useFetcher<{
@@ -606,6 +610,21 @@ export default function Overview() {
               {showLimitationsBanner && (
                 <s-banner tone="info" heading={limitationsHeading}>
                   <s-stack direction="block" gap="small-200">
+                    {type === "FULL" && (
+                      <>
+                        <s-paragraph>
+                          Passwords, payment gateways, staff accounts, domains,
+                          and app subscriptions are never copied.
+                        </s-paragraph>
+                        <s-paragraph>
+                          Product drafts and unpublished content copy only when
+                          selected resources include them; metafield{" "}
+                          <s-text type="strong">values</s-text> on resources
+                          migrate with those resources, but some app-owned
+                          definitions cannot be recreated.
+                        </s-paragraph>
+                      </>
+                    )}
                     {hasThemeLimitation && (
                       <s-paragraph>
                         Theme files are copied to an unpublished theme on the
@@ -658,9 +677,6 @@ export default function Overview() {
                 <s-option value="OVERWRITE">Overwrite it (recommended for full copy)</s-option>
                 <s-option value="SKIP">Skip it</s-option>
                 <s-option value="CREATE_NEW">Create a new copy</s-option>
-                <s-option value="MERGE">
-                  Merge (falls back to overwrite)
-                </s-option>
               </s-select>
 
               <s-button type="submit" variant="primary">

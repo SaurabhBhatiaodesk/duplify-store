@@ -17,11 +17,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         processedAt: new Date(),
       },
     });
-    // Keep records only until Shopify sends shop/redact (normally 48 hours
-    // later). That handler permanently purges all data tied to this shop.
+    // Wipe credentials immediately so an uninstall cannot leave a usable
+    // offline token in the DB until shop/redact (~48h later).
     await db.shop.update({
       where: { id: shopRow.id },
-      data: { isActive: false, uninstalledAt: new Date() },
+      data: {
+        isActive: false,
+        uninstalledAt: new Date(),
+        accessTokenEncrypted: "",
+        scope: "",
+      },
     });
   }
 

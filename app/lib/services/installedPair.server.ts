@@ -2,13 +2,13 @@ import db from "../../db.server";
 import { isValidShopDomain, normalizeShopDomain } from "../shopify/shop-domain";
 
 export type InstallPairResult =
-  | { ok: true }
+  | { ok: true; pending: boolean }
   | { ok: false; error: string; needsInstall?: boolean; installShopDomain?: string };
 
 /**
- * Pair two shops that already installed Duplify Store.
- * The other shop must have opened the app at least once so afterAuth saved
- * its offline token.
+ * Request a pair between two shops that already installed Duplify Store.
+ * Does NOT silently mark READY — the other shop must Accept first
+ * (mutual consent). Existing READY pairs stay READY on re-connect.
  */
 export async function connectViaInstalledApp(params: {
   ownerShopId: string;
@@ -62,6 +62,18 @@ export async function connectViaInstalledApp(params: {
   const destinationShopId =
     params.currentRole === "DESTINATION" ? ownerShop.id : otherShop.id;
 
+  const existing = await db.storeConnection.findUnique({
+    where: {
+      sourceShopId_destinationShopId: {
+        sourceShopId,
+        destinationShopId,
+      },
+    },
+  });
+
+  // Already approved pairs stay READY; new / archived / pending need consent.
+  const nextStatus = existing?.status === "READY" ? "READY" : "PENDING";
+
   await db.storeConnection.upsert({
     where: {
       sourceShopId_destinationShopId: {
@@ -73,13 +85,81 @@ export async function connectViaInstalledApp(params: {
       ownerShopId: ownerShop.id,
       sourceShopId,
       destinationShopId,
-      status: "READY",
+      status: "PENDING",
     },
     update: {
-      status: "READY",
-      ownerShopId: ownerShop.id,
+      status: nextStatus,
+      // Initiator owns the pending request so the other shop can Accept.
+      ownerShopId:
+        nextStatus === "PENDING"
+          ? ownerShop.id
+          : (existing?.ownerShopId ?? ownerShop.id),
     },
   });
 
+  return { ok: true, pending: nextStatus === "PENDING" };
+}
+
+export async function acceptStoreConnection(params: {
+  connectionId: string;
+  actingShopId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const connection = await db.storeConnection.findUnique({
+    where: { id: params.connectionId },
+  });
+  if (!connection || connection.status === "ARCHIVED") {
+    return { ok: false, error: "Connection not found" };
+  }
+  if (connection.status === "READY") {
+    return { ok: true };
+  }
+  if (connection.status !== "PENDING") {
+    return { ok: false, error: "This connection cannot be accepted" };
+  }
+
+  const isParty =
+    connection.sourceShopId === params.actingShopId ||
+    connection.destinationShopId === params.actingShopId;
+  if (!isParty) {
+    return { ok: false, error: "You are not part of this store pair" };
+  }
+  // Initiator cannot self-approve.
+  if (connection.ownerShopId === params.actingShopId) {
+    return {
+      ok: false,
+      error: "Waiting for the other store to approve this connection",
+    };
+  }
+
+  await db.storeConnection.update({
+    where: { id: connection.id },
+    data: { status: "READY" },
+  });
+  return { ok: true };
+}
+
+export async function declineStoreConnection(params: {
+  connectionId: string;
+  actingShopId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const connection = await db.storeConnection.findUnique({
+    where: { id: params.connectionId },
+  });
+  if (!connection || connection.status === "ARCHIVED") {
+    return { ok: false, error: "Connection not found" };
+  }
+
+  const isParty =
+    connection.sourceShopId === params.actingShopId ||
+    connection.destinationShopId === params.actingShopId ||
+    connection.ownerShopId === params.actingShopId;
+  if (!isParty) {
+    return { ok: false, error: "You are not part of this store pair" };
+  }
+
+  await db.storeConnection.update({
+    where: { id: connection.id },
+    data: { status: "ARCHIVED" },
+  });
   return { ok: true };
 }

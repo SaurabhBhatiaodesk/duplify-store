@@ -37,7 +37,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const url = new URL(request.url);
   const resourceType = url.searchParams.get("resourceType") || undefined;
-  const connectionId = url.searchParams.get("connectionId") || undefined;
+  const requestedConnectionId =
+    url.searchParams.get("connectionId") || undefined;
+  // Prevent IDOR: only allow connection IDs this shop owns / participates in.
+  const connectionId =
+    requestedConnectionId && connectionIds.includes(requestedConnectionId)
+      ? requestedConnectionId
+      : undefined;
   const search = url.searchParams.get("q") || undefined;
   const cleared =
     url.searchParams.get("cleared") === "1" || autoCleared > 0;

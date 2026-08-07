@@ -1,11 +1,17 @@
 import db from "../../db.server";
 
 interface CustomerPrivacyPayload {
+  shop_id?: number | string;
+  shop_domain?: string;
+  orders_requested?: Array<number | string>;
   customer?: {
     id?: number | string;
     email?: string | null;
+    phone?: string | null;
   };
-  orders_to_redact?: Array<number | string>;
+  data_request?: {
+    id?: number | string;
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -41,6 +47,11 @@ async function connectionAndJobIds(shopId: string) {
   };
 }
 
+/**
+ * Fulfill customers/data_request: collect PII Duplify holds for this customer
+ * and store an export on the webhook event for the merchant (Settings →
+ * Privacy requests). Marks the event processed.
+ */
 export async function recordCustomerDataRequest(
   shopDomain: string,
   topic: string,
@@ -48,11 +59,16 @@ export async function recordCustomerDataRequest(
 ) {
   const shop = await db.shop.findUnique({
     where: { shopDomain },
-    select: { id: true },
+    select: { id: true, shopDomain: true },
   });
   if (!shop) return;
 
-  await db.webhookEvent.create({
+  const body = payload as CustomerPrivacyPayload;
+  const customerId = body.customer?.id;
+  const customerEmail = body.customer?.email?.trim().toLowerCase() ?? null;
+  const customerPhone = body.customer?.phone?.trim() ?? null;
+
+  const event = await db.webhookEvent.create({
     data: {
       shopId: shop.id,
       topic,
@@ -60,11 +76,194 @@ export async function recordCustomerDataRequest(
       processedAt: null,
     },
   });
+
+  if (customerId === undefined) {
+    await db.webhookEvent.update({
+      where: { id: event.id },
+      data: {
+        processedAt: new Date(),
+        payload: {
+          request: payload,
+          export: {
+            note: "No customer id in request; nothing to export from Duplify.",
+            customers: [],
+            orders: [],
+            mappings: [],
+          },
+        } as object,
+      },
+    });
+    return;
+  }
+
+  const { connectionIds, jobIds } = await connectionAndJobIds(shop.id);
+  const customerGid = gid("Customer", customerId);
+  const orderGids = (body.orders_requested ?? []).map((id) => gid("Order", id));
+
+  const candidateItems = await db.migrationItem.findMany({
+    where: {
+      migrationJobId: { in: jobIds },
+      resourceType: { in: ["customer", "order"] },
+    },
+    select: {
+      id: true,
+      resourceType: true,
+      sourceId: true,
+      destinationId: true,
+      status: true,
+      payload: true,
+      migrationJobId: true,
+    },
+  });
+
+  const customers: unknown[] = [];
+  const orders: unknown[] = [];
+
+  for (const item of candidateItems) {
+    const stored = asRecord(item.payload);
+    if (item.resourceType === "customer") {
+      const email =
+        typeof stored.email === "string" ? stored.email.toLowerCase() : null;
+      if (
+        item.sourceId === customerGid ||
+        (customerEmail && email === customerEmail)
+      ) {
+        customers.push({
+          migrationItemId: item.id,
+          migrationJobId: item.migrationJobId,
+          sourceId: item.sourceId,
+          destinationId: item.destinationId,
+          status: item.status,
+          // Only fields Duplify persisted — not a full Shopify customer dump.
+          storedFields: {
+            email: stored.email ?? null,
+            firstName: stored.firstName ?? null,
+            lastName: stored.lastName ?? null,
+            phone: stored.phone ?? null,
+          },
+        });
+      }
+      continue;
+    }
+
+    const storedEmail =
+      typeof stored.email === "string" ? stored.email.toLowerCase() : null;
+    if (
+      orderGids.includes(item.sourceId) ||
+      stored.customerSourceId === customerGid ||
+      (customerEmail !== null && storedEmail === customerEmail)
+    ) {
+      orders.push({
+        migrationItemId: item.id,
+        migrationJobId: item.migrationJobId,
+        sourceId: item.sourceId,
+        destinationId: item.destinationId,
+        status: item.status,
+        storedFields: {
+          email: stored.email ?? null,
+          customerSourceId: stored.customerSourceId ?? null,
+          name: stored.name ?? null,
+        },
+      });
+    }
+  }
+
+  const mappings = await db.idMapping.findMany({
+    where: {
+      storeConnectionId: { in: connectionIds },
+      OR: [
+        { sourceId: customerGid },
+        { destinationId: customerGid },
+        ...(orderGids.length
+          ? [
+              { sourceId: { in: orderGids } },
+              { destinationId: { in: orderGids } },
+            ]
+          : []),
+      ],
+    },
+    select: {
+      resourceType: true,
+      sourceId: true,
+      destinationId: true,
+      sourceHandle: true,
+      destinationHandle: true,
+      updatedAt: true,
+    },
+  });
+
+  const exportPayload = {
+    fulfilledAt: new Date().toISOString(),
+    shopDomain: shop.shopDomain,
+    dataRequestId: body.data_request?.id ?? null,
+    customer: {
+      id: customerId,
+      gid: customerGid,
+      email: customerEmail,
+      phone: customerPhone,
+    },
+    note:
+      "This export contains only data Duplify Store retained during migrations (IDs, handles, and fields stored in migration payloads). It is not a full Shopify Admin customer export.",
+    customers,
+    orders,
+    mappings,
+  };
+
+  await db.webhookEvent.update({
+    where: { id: event.id },
+    data: {
+      processedAt: new Date(),
+      payload: {
+        request: payload,
+        export: exportPayload,
+      } as object,
+    },
+  });
+
+  console.log(
+    `Fulfilled customers/data_request for ${shopDomain}: ${customers.length} customer row(s), ${orders.length} order row(s), ${mappings.length} mapping(s)`,
+  );
+}
+
+export async function listCustomerDataExports(shopId: string) {
+  const events = await db.webhookEvent.findMany({
+    where: {
+      shopId,
+      topic: {
+        in: ["CUSTOMERS_DATA_REQUEST", "customers/data_request"],
+      },
+      processedAt: { not: null },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+
+  return events.map((event) => {
+    const payload = asRecord(event.payload);
+    const exportData = asRecord(payload.export);
+    return {
+      id: event.id,
+      createdAt: event.createdAt.toISOString(),
+      processedAt: event.processedAt?.toISOString() ?? null,
+      customerEmail:
+        typeof asRecord(exportData.customer).email === "string"
+          ? String(asRecord(exportData.customer).email)
+          : null,
+      customerId: asRecord(exportData.customer).id ?? null,
+      export: exportData,
+    };
+  });
 }
 
 export async function redactCustomerData(
   shopDomain: string,
-  payload: CustomerPrivacyPayload,
+  payload: {
+    customer?: {
+      id?: number | string;
+      email?: string | null;
+    };
+    orders_to_redact?: Array<number | string>;
+  },
 ) {
   const shop = await db.shop.findUnique({
     where: { shopDomain },

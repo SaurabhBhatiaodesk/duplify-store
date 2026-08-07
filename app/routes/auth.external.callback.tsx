@@ -67,6 +67,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     );
   }
 
+  if (
+    statePayload.expectedShop &&
+    shop !== statePayload.expectedShop.trim().toLowerCase()
+  ) {
+    return confirmationPage(
+      "This authorization link was issued for a different store. Please restart the connection from Duplify Store.",
+      false,
+    );
+  }
+
   const ownerShop = await db.shop.findUnique({
     where: { id: statePayload.ownerShopId },
   });

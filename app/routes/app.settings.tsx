@@ -8,6 +8,7 @@ import {
   missingRequestedScopes,
   shopCanMigrate,
 } from "../lib/shopify/scopes";
+import { listCustomerDataExports } from "../lib/services/privacyCompliance.server";
 
 /** Scopes we show merchants — protected Partner-only scopes stay out. */
 const DISPLAY_SCOPES = PUBLISHED_SCOPES;
@@ -110,11 +111,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         missingScopes,
       };
     }),
-    notificationEmail: setting?.notificationEmail ?? "",
     timezone: setting?.timezone ?? "UTC",
     defaultConflictStrategy:
       (setting?.defaultConflictStrategy as { default?: string } | null)
         ?.default ?? "OVERWRITE",
+    privacyExports: await listCustomerDataExports(shop.id),
+    privacyPolicyUrl: new URL("/privacy", process.env.SHOPIFY_APP_URL || "https://duplify-store-production.up.railway.app").toString(),
   };
 };
 
@@ -129,14 +131,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     where: { shopId: shop.id },
     create: {
       shopId: shop.id,
-      notificationEmail: String(form.get("notificationEmail") || "") || null,
       timezone: String(form.get("timezone") || "UTC"),
       defaultConflictStrategy: {
         default: String(form.get("defaultConflictStrategy") || "OVERWRITE"),
       },
     },
     update: {
-      notificationEmail: String(form.get("notificationEmail") || "") || null,
       timezone: String(form.get("timezone") || "UTC"),
       defaultConflictStrategy: {
         default: String(form.get("defaultConflictStrategy") || "OVERWRITE"),
@@ -159,21 +159,16 @@ export default function Settings() {
   // against — starts from the loader, and is advanced (not the loader data
   // itself, which useLoaderData treats as read-only) after a successful save.
   const [baseline, setBaseline] = useState({
-    notificationEmail: data.notificationEmail,
     timezone: data.timezone,
     defaultConflictStrategy: data.defaultConflictStrategy,
   });
 
-  const [notificationEmail, setNotificationEmail] = useState(
-    baseline.notificationEmail,
-  );
   const [timezone, setTimezone] = useState(baseline.timezone);
   const [defaultConflictStrategy, setDefaultConflictStrategy] = useState(
     baseline.defaultConflictStrategy,
   );
 
   const isDirty =
-    notificationEmail !== baseline.notificationEmail ||
     timezone !== baseline.timezone ||
     defaultConflictStrategy !== baseline.defaultConflictStrategy;
 
@@ -192,13 +187,12 @@ export default function Settings() {
 
   function handleSave() {
     fetcher.submit(
-      { notificationEmail, timezone, defaultConflictStrategy },
+      { timezone, defaultConflictStrategy },
       { method: "post" },
     );
   }
 
   function handleDiscard() {
-    setNotificationEmail(baseline.notificationEmail);
     setTimezone(baseline.timezone);
     setDefaultConflictStrategy(baseline.defaultConflictStrategy);
   }
@@ -207,7 +201,7 @@ export default function Settings() {
 
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data?.saved) {
-      setBaseline({ notificationEmail, timezone, defaultConflictStrategy });
+      setBaseline({ timezone, defaultConflictStrategy });
       setSavedBannerDismissed(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -334,13 +328,6 @@ export default function Settings() {
 
       <s-section heading="Defaults">
         <s-stack direction="block" gap="base">
-          <s-email-field
-            name="notificationEmail"
-            label="Notification email"
-            details="Reserved for future migration-complete notifications."
-            value={notificationEmail}
-            onChange={(e) => setNotificationEmail(e.currentTarget.value)}
-          ></s-email-field>
           <s-select
             name="timezone"
             label="Timezone for displayed timestamps"
@@ -368,8 +355,69 @@ export default function Settings() {
             <s-option value="SKIP">Skip</s-option>
             <s-option value="OVERWRITE">Overwrite</s-option>
             <s-option value="CREATE_NEW">Create new copy</s-option>
-            <s-option value="MERGE">Merge</s-option>
           </s-select>
+        </s-stack>
+      </s-section>
+
+      <s-section heading="Privacy">
+        <s-stack direction="block" gap="base">
+          <s-paragraph>
+            Privacy policy:{" "}
+            <s-link href={data.privacyPolicyUrl} target="_blank">
+              {data.privacyPolicyUrl}
+            </s-link>
+          </s-paragraph>
+          <s-paragraph color="subdued">
+            When Shopify sends a customer data request, Duplify stores a
+            fulfilled export here for you to download.
+          </s-paragraph>
+          {data.privacyExports.length === 0 ? (
+            <s-paragraph color="subdued">No data requests yet.</s-paragraph>
+          ) : (
+            <s-stack direction="block" gap="small-200">
+              {data.privacyExports.map((item) => (
+                <s-box
+                  key={item.id}
+                  padding="base"
+                  borderWidth="base"
+                  borderRadius="base"
+                  background="base"
+                >
+                  <s-stack direction="block" gap="small-200">
+                    <s-text type="strong">
+                      {item.customerEmail ||
+                        (item.customerId
+                          ? `Customer ${String(item.customerId)}`
+                          : "Customer data request")}
+                    </s-text>
+                    <s-text color="subdued">
+                      Fulfilled{" "}
+                      {item.processedAt
+                        ? new Date(item.processedAt).toLocaleString()
+                        : "—"}
+                    </s-text>
+                    <s-button
+                      variant="secondary"
+                      onClick={() => {
+                        const blob = new Blob(
+                          [JSON.stringify(item.export, null, 2)],
+                          { type: "application/json" },
+                        );
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `duplify-customer-export-${item.id}.json`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      Download export
+                    </s-button>
+                  </s-stack>
+                </s-box>
+              ))}
+            </s-stack>
+          )}
         </s-stack>
       </s-section>
 

@@ -25,6 +25,8 @@ export type ExternalOAuthRole = "SOURCE" | "DESTINATION";
 interface StatePayload {
   ownerShopId: string;
   ownerRole: ExternalOAuthRole;
+  /** Shop domain that must complete this authorize — prevents shop-swap on callback. */
+  expectedShop?: string;
   storeConnectionId: string | null;
   nonce: string;
   iat: number;
@@ -162,6 +164,7 @@ export function buildExternalConnectAuthorizeUrl(params: {
   const state = signState({
     ownerShopId: params.ownerShopId,
     ownerRole,
+    expectedShop: shop,
     storeConnectionId: null,
     nonce: crypto.randomUUID(),
   });

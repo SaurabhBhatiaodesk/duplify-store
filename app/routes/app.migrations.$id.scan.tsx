@@ -448,7 +448,9 @@ export default function MigrationScan() {
                     {resource}
                   </span>
                   <span style={{ color: "#4a4f55" }}>
-                    {result.total} on source
+                    {result.unsupported?.length
+                      ? result.unsupported[0]
+                      : `${result.total} on source`}
                   </span>
                   <span
                     style={{
@@ -456,10 +458,13 @@ export default function MigrationScan() {
                         result.sampledConflicts > 0 ? "#8a6116" : "#6d7175",
                     }}
                   >
-                    {result.sampledConflicts} likely conflicts{" "}
-                    {result.sampleTruncated
-                      ? `(of first ${result.sampleSize})`
-                      : ""}
+                    {result.unsupported?.length
+                      ? "Included in migration"
+                      : `${result.sampledConflicts} likely conflicts ${
+                          result.sampleTruncated
+                            ? `(of first ${result.sampleSize})`
+                            : ""
+                        }`}
                   </span>
                 </div>
               ))}
