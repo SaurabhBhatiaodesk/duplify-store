@@ -35,12 +35,15 @@ export interface AdminClient {
   ): Promise<T>;
 }
 
+interface GraphqlErrorItem {
+  message: string;
+  extensions?: { code?: string };
+}
+
 interface GraphqlResponseBody<T> {
   data?: T;
-  errors?: Array<{
-    message: string;
-    extensions?: { code?: string };
-  }>;
+  errors?: unknown;
+  error?: unknown;
   extensions?: {
     cost?: {
       requestedQueryCost: number;
@@ -52,6 +55,41 @@ interface GraphqlResponseBody<T> {
       };
     };
   };
+}
+
+function normalizeGraphqlErrors(errors: unknown): GraphqlErrorItem[] {
+  if (errors == null) return [];
+
+  if (Array.isArray(errors)) {
+    return errors.map((entry) => {
+      if (typeof entry === "string") return { message: entry };
+      if (entry && typeof entry === "object") {
+        const record = entry as Record<string, unknown>;
+        const message =
+          typeof record.message === "string"
+            ? record.message
+            : JSON.stringify(entry);
+        const extensions =
+          record.extensions && typeof record.extensions === "object"
+            ? (record.extensions as { code?: string })
+            : undefined;
+        return { message, extensions };
+      }
+      return { message: String(entry) };
+    });
+  }
+
+  if (typeof errors === "string") return [{ message: errors }];
+
+  if (typeof errors === "object") {
+    const record = errors as Record<string, unknown>;
+    if (typeof record.message === "string") {
+      return [{ message: record.message }];
+    }
+    return [{ message: JSON.stringify(errors) }];
+  }
+
+  return [{ message: String(errors) }];
 }
 
 function buildClient(shopDomain: string, accessToken: string): AdminClient {
@@ -103,10 +141,24 @@ function buildClient(shopDomain: string, accessToken: string): AdminClient {
           continue;
         }
 
-        const body = (await response.json()) as GraphqlResponseBody<T>;
+        let body: GraphqlResponseBody<T>;
+        try {
+          body = (await response.json()) as GraphqlResponseBody<T>;
+        } catch {
+          lastError = new Error(
+            `Shopify Admin API returned non-JSON ${response.status} for ${shopDomain}`,
+          );
+          await sleep(jitteredBackoffMs(attempt));
+          continue;
+        }
+
         await recordThrottleStatus(shopDomain, body.extensions?.cost);
 
-        const throttled = body.errors?.some(
+        const graphqlErrors = normalizeGraphqlErrors(
+          body.errors ?? body.error,
+        );
+
+        const throttled = graphqlErrors.some(
           (e) => e.extensions?.code === "THROTTLED",
         );
         if (throttled) {
@@ -116,10 +168,10 @@ function buildClient(shopDomain: string, accessToken: string): AdminClient {
           continue;
         }
 
-        if (body.errors && body.errors.length > 0) {
+        if (graphqlErrors.length > 0) {
           throw new ShopifyGraphqlError(
-            body.errors.map((e) => e.message).join("; "),
-            body.errors,
+            graphqlErrors.map((e) => e.message).join("; "),
+            graphqlErrors,
           );
         }
 
@@ -127,6 +179,10 @@ function buildClient(shopDomain: string, accessToken: string): AdminClient {
           lastError = new Error(
             `Shopify Admin API returned ${response.status} for ${shopDomain}`,
           );
+          // Auth / forbidden responses usually won't succeed on retry.
+          if (response.status === 401 || response.status === 403) {
+            throw lastError;
+          }
           await sleep(jitteredBackoffMs(attempt));
           continue;
         }
@@ -136,7 +192,9 @@ function buildClient(shopDomain: string, accessToken: string): AdminClient {
 
       throw (
         lastError ??
-        new Error(`Exhausted retries calling Shopify Admin API for ${shopDomain}`)
+        new Error(
+          `Exhausted retries calling Shopify Admin API for ${shopDomain}`,
+        )
       );
     },
   };
