@@ -10,6 +10,7 @@ import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { listMigrationJobs } from "../lib/services/migrationJob.service";
 import { countLiveMissingPermissions, scanSummaryLooksBlocked } from "../lib/services/permissionStatus.server";
+import { shopIsConnected } from "../lib/shopify/scopes";
 import { MigrationList } from "../components/dashboard/MigrationList";
 import { EmptyState } from "../components/shared/EmptyState";
 
@@ -57,34 +58,50 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const jobs = collapseDuplicateBlockedScans(rawJobs);
 
   return {
-    jobs: jobs.map((j) => ({
-      id: j.id,
-      type: j.type,
-      status: j.status,
-      source: j.storeConnection.sourceShop.shopDomain,
-      destination: j.storeConnection.destinationShop.shopDomain,
-      totalRecords: j.totalRecords,
-      completedRecords: j.completedRecords,
-      failedRecords: j.failedRecords,
-      missingPermissionsCount: countMissingPermissions(j),
-      scanBlocked: scanSummaryLooksBlocked(j.scanSummary),
-      createdAt: j.createdAt,
-    })),
+    jobs: jobs.map((j) => {
+      const sourceConnected = shopIsConnected(j.storeConnection.sourceShop);
+      const destinationConnected = shopIsConnected(
+        j.storeConnection.destinationShop,
+      );
+      const scanBlocked =
+        scanSummaryLooksBlocked(j.scanSummary) && !sourceConnected;
+      return {
+        id: j.id,
+        type: j.type,
+        status: j.status,
+        source: j.storeConnection.sourceShop.shopDomain,
+        destination: j.storeConnection.destinationShop.shopDomain,
+        totalRecords: j.totalRecords,
+        completedRecords: j.completedRecords,
+        failedRecords: j.failedRecords,
+        missingPermissionsCount: countMissingPermissions(j, {
+          sourceConnected,
+          destinationConnected,
+        }),
+        scanBlocked,
+        createdAt: j.createdAt,
+      };
+    }),
   };
 };
 
-function countMissingPermissions(job: {
-  selectedResources: unknown;
-  storeConnection: {
-    sourceShop: { scope: string; shopDomain: string };
-    destinationShop: { scope: string; shopDomain: string };
-  };
-}) {
+function countMissingPermissions(
+  job: {
+    selectedResources: unknown;
+    storeConnection: {
+      sourceShop: { scope: string; shopDomain: string };
+      destinationShop: { scope: string; shopDomain: string };
+    };
+  },
+  connected?: { sourceConnected: boolean; destinationConnected: boolean },
+) {
   return countLiveMissingPermissions(normalizeStrings(job.selectedResources), {
     sourceScope: job.storeConnection.sourceShop.scope,
     destinationScope: job.storeConnection.destinationShop.scope,
     sourceShopDomain: job.storeConnection.sourceShop.shopDomain,
     destinationShopDomain: job.storeConnection.destinationShop.shopDomain,
+    sourceConnected: connected?.sourceConnected,
+    destinationConnected: connected?.destinationConnected,
   });
 }
 
@@ -101,15 +118,30 @@ function collapseDuplicateBlockedScans<
     selectedResources: unknown;
     scanSummary: unknown;
     storeConnection: {
-      sourceShop: { scope: string; shopDomain: string };
-      destinationShop: { scope: string; shopDomain: string };
+      sourceShop: {
+        scope: string;
+        shopDomain: string;
+        isActive: boolean;
+        accessTokenEncrypted: string | null;
+        uninstalledAt: Date | null;
+      };
+      destinationShop: {
+        scope: string;
+        shopDomain: string;
+        isActive: boolean;
+        accessTokenEncrypted: string | null;
+        uninstalledAt: Date | null;
+      };
     };
   },
 >(jobs: T[]) {
   const seen = new Set<string>();
 
   return jobs.filter((job) => {
-    const missingPermissionsCount = countMissingPermissions(job);
+    const missingPermissionsCount = countMissingPermissions(job, {
+      sourceConnected: shopIsConnected(job.storeConnection.sourceShop),
+      destinationConnected: shopIsConnected(job.storeConnection.destinationShop),
+    });
     const isBlockedScan =
       job.status === "SCANNED" &&
       job.totalRecords === 0 &&

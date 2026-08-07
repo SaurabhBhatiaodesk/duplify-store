@@ -17,6 +17,7 @@ import {
 } from "../lib/services/storeConnection.service";
 import { createMigrationJob } from "../lib/services/migrationJob.service";
 import { countLiveMissingPermissions, scanSummaryLooksBlocked } from "../lib/services/permissionStatus.server";
+import { shopIsConnected } from "../lib/shopify/scopes";
 import type { ConflictStrategy } from "../lib/services/types";
 import { StatCard } from "../components/dashboard/StatCard";
 import { StatusBadge } from "../components/dashboard/StatusBadge";
@@ -108,34 +109,52 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       sourceMissingScopes: [] as string[],
       destinationMissingScopes: [] as string[],
     })),
-    jobs: jobs.map((j) => ({
-      id: j.id,
-      type: j.type,
-      status: j.status,
-      source: j.storeConnection.sourceShop.shopDomain,
-      destination: j.storeConnection.destinationShop.shopDomain,
-      totalRecords: j.totalRecords,
-      completedRecords: j.completedRecords,
-      missingPermissionsCount: countMissingPermissions(j),
-      scanBlocked: scanSummaryLooksBlocked(j.scanSummary),
-      createdAt: j.createdAt,
-    })),
+    jobs: jobs.map((j) => {
+      const sourceConnected = shopIsConnected(j.storeConnection.sourceShop);
+      const destinationConnected = shopIsConnected(
+        j.storeConnection.destinationShop,
+      );
+      // Stale scan summaries can say "reconnect" even after the store is live
+      // again — only show that warning when the source is actually disconnected.
+      const scanBlocked =
+        scanSummaryLooksBlocked(j.scanSummary) && !sourceConnected;
+      return {
+        id: j.id,
+        type: j.type,
+        status: j.status,
+        source: j.storeConnection.sourceShop.shopDomain,
+        destination: j.storeConnection.destinationShop.shopDomain,
+        totalRecords: j.totalRecords,
+        completedRecords: j.completedRecords,
+        missingPermissionsCount: countMissingPermissions(j, {
+          sourceConnected,
+          destinationConnected,
+        }),
+        scanBlocked,
+        createdAt: j.createdAt,
+      };
+    }),
     stats: { active, completed, failed },
   };
 };
 
-function countMissingPermissions(job: {
-  selectedResources: unknown;
-  storeConnection: {
-    sourceShop: { scope: string; shopDomain: string };
-    destinationShop: { scope: string; shopDomain: string };
-  };
-}) {
+function countMissingPermissions(
+  job: {
+    selectedResources: unknown;
+    storeConnection: {
+      sourceShop: { scope: string; shopDomain: string };
+      destinationShop: { scope: string; shopDomain: string };
+    };
+  },
+  connected?: { sourceConnected: boolean; destinationConnected: boolean },
+) {
   return countLiveMissingPermissions(normalizeStrings(job.selectedResources), {
     sourceScope: job.storeConnection.sourceShop.scope,
     destinationScope: job.storeConnection.destinationShop.scope,
     sourceShopDomain: job.storeConnection.sourceShop.shopDomain,
     destinationShopDomain: job.storeConnection.destinationShop.shopDomain,
+    sourceConnected: connected?.sourceConnected,
+    destinationConnected: connected?.destinationConnected,
   });
 }
 
@@ -148,15 +167,34 @@ function collapseDuplicateBlockedScans<
     selectedResources: unknown;
     scanSummary: unknown;
     storeConnection: {
-      sourceShop: { scope: string; shopDomain: string };
-      destinationShop: { scope: string; shopDomain: string };
+      sourceShop: {
+        scope: string;
+        shopDomain: string;
+        isActive: boolean;
+        accessTokenEncrypted: string | null;
+        uninstalledAt: Date | null;
+      };
+      destinationShop: {
+        scope: string;
+        shopDomain: string;
+        isActive: boolean;
+        accessTokenEncrypted: string | null;
+        uninstalledAt: Date | null;
+      };
     };
   },
 >(jobs: T[]) {
   const seen = new Set<string>();
 
   return jobs.filter((job) => {
-    const missingPermissionsCount = countMissingPermissions(job);
+    const sourceConnected = shopIsConnected(job.storeConnection.sourceShop);
+    const destinationConnected = shopIsConnected(
+      job.storeConnection.destinationShop,
+    );
+    const missingPermissionsCount = countMissingPermissions(job, {
+      sourceConnected,
+      destinationConnected,
+    });
     const isBlockedScan =
       job.status === "SCANNED" &&
       job.totalRecords === 0 &&
