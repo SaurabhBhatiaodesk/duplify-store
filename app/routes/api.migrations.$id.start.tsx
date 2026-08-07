@@ -8,6 +8,7 @@ import type { ScanSummary } from "../lib/services/scan.service";
 import {
   liveMissingAppPermissions,
   needsPermissionRescan,
+  storeScopesFromConnection,
 } from "../lib/services/permissionStatus.server";
 import { migrationJobForShopWhere } from "../lib/services/storeConnection.service";
 import { enqueueOrRunInline } from "../lib/queue/enqueueOrRun.server";
@@ -37,19 +38,14 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   }
 
   const scanSummary = job.scanSummary as ScanSummary | null;
-  const storeScopes = {
-    sourceScope: job.storeConnection.sourceShop.scope,
-    destinationScope: job.storeConnection.destinationShop.scope,
-    sourceShopDomain: job.storeConnection.sourceShop.shopDomain,
-    destinationShopDomain: job.storeConnection.destinationShop.shopDomain,
-  };
+  const storeScopes = storeScopesFromConnection(job.storeConnection);
   const selectedResources = job.selectedResources as string[];
   const missingPermissions = liveMissingAppPermissions(storeScopes);
   if (missingPermissions.length > 0) {
     await logEvent(
       job.id,
       "WARN",
-      "Migration start blocked because required permissions are missing",
+      "Migration start blocked because a store needs reconnect",
       {
         missingPermissions,
       },

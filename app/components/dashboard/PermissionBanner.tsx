@@ -79,7 +79,7 @@ export function PermissionBanner({
       effectiveMissing
         .filter((item) => sameShop(currentShopDomain, item.shopDomain))
         .flatMap((item) => item.missing)
-        .filter(isRequestableScope),
+        .filter((scope) => scope !== "reconnect" && isRequestableScope(scope)),
     ),
   );
 
@@ -129,13 +129,19 @@ export function PermissionBanner({
     }
   }
 
-  const heading = sourceNeedsInstall
+  const needsReconnect = effectiveMissing.some((item) =>
+    item.missing.includes("reconnect"),
+  );
+
+  const heading = sourceNeedsInstall || needsReconnect
     ? "Open Duplify on the source store once"
     : "Store update needed";
 
   const message =
-    sourceNeedsInstall && sourceShopDomain
-      ? `${sourceShopDomain} pe Duplify already install ho sakti hai — bas app ek baar open karo taaki connection sync ho jaye. Phir yahan refresh karo.`
+    sourceNeedsInstall || needsReconnect
+      ? sourceShopDomain
+        ? `Open Duplify once on ${sourceShopDomain} so access syncs. Then return here and run the scan again. No extra permission grant is needed after a normal install.`
+        : "Open Duplify once on the source store so access syncs, then run the scan again."
       : "Update this store's access before importing can start.";
 
   const modalUrl = installHref ?? otherShopHref;
@@ -147,7 +153,7 @@ export function PermissionBanner({
           <s-paragraph>{message}</s-paragraph>
         </s-stack>
 
-        {currentStoreScopes.length > 0 && (
+        {currentStoreScopes.length > 0 && !needsReconnect && (
           <s-button
             slot="primary-action"
             variant="primary"
@@ -158,14 +164,18 @@ export function PermissionBanner({
           </s-button>
         )}
 
-        {sourceNeedsInstall && modalUrl && (
+        {(sourceNeedsInstall || needsReconnect) && modalUrl && (
           <s-button
             slot={
-              currentStoreScopes.length > 0
+              currentStoreScopes.length > 0 && !needsReconnect
                 ? "secondary-actions"
                 : "primary-action"
             }
-            variant={currentStoreScopes.length > 0 ? "secondary" : "primary"}
+            variant={
+              currentStoreScopes.length > 0 && !needsReconnect
+                ? "secondary"
+                : "primary"
+            }
             command="--show"
             commandFor={installModalId}
           >
@@ -174,13 +184,12 @@ export function PermissionBanner({
         )}
       </s-banner>
 
-      {modalUrl && sourceNeedsInstall && (
+      {modalUrl && (sourceNeedsInstall || needsReconnect) && (
         <s-modal id={installModalId} heading="Open source store app">
           <s-stack direction="block" gap="base">
             <s-paragraph>
-              Is URL ko {sourceShopDomain} ke browser mein paste karo, Duplify
-              app open karo (Install sirf tab agar pehli baar ho), phir is store
-              pe wapas aake page refresh karo.
+              Paste this URL in a browser signed into {sourceShopDomain}, open
+              Duplify (Install only if first time), then return here and refresh.
             </s-paragraph>
             <s-text-field
               id={`${installModalId}-url`}

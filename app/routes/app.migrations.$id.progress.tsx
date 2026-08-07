@@ -18,6 +18,7 @@ import type { ScanSummary } from "../lib/services/scan.service";
 import {
   liveMissingAppPermissions,
   needsPermissionRescan,
+  storeScopesFromConnection,
 } from "../lib/services/permissionStatus.server";
 
 const ACTIVE_STATUSES = new Set(["QUEUED", "RUNNING", "SCANNING"]);
@@ -173,12 +174,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     return { ...def, total, completed, failed, skipped };
   });
 
-  const storeScopes = {
-    sourceScope: job.storeConnection.sourceShop.scope,
-    destinationScope: job.storeConnection.destinationShop.scope,
-    sourceShopDomain: job.storeConnection.sourceShop.shopDomain,
-    destinationShopDomain: job.storeConnection.destinationShop.shopDomain,
-  };
+  const storeScopes = storeScopesFromConnection(job.storeConnection);
   const missingPermissions = liveMissingAppPermissions(storeScopes);
 
   return {

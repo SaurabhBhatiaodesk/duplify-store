@@ -11,8 +11,14 @@ import { IndeterminateProgressBar } from "../components/dashboard/IndeterminateP
 import {
   liveMissingAppPermissions,
   needsPermissionRescan,
+  storeScopesFromConnection,
 } from "../lib/services/permissionStatus.server";
-import { migrationJobForShopWhere } from "../lib/services/storeConnection.service";
+import {
+  hydrateShopFromOfflineSession,
+  migrationJobForShopWhere,
+  refreshShopScopesIfStale,
+} from "../lib/services/storeConnection.service";
+import { shopIsConnected } from "../lib/shopify/scopes";
 
 // Recover scans that were queued while no worker was online.
 const recoveringScans = new Set<string>();
@@ -45,47 +51,81 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       });
   }
 
+  // Heal tokens/scopes before deciding whether to show reconnect UI.
+  try {
+    await Promise.all([
+      hydrateShopFromOfflineSession(job.storeConnection.sourceShop.shopDomain)
+        .then(async (hydrated) => {
+          if (hydrated) await refreshShopScopesIfStale(hydrated);
+        })
+        .catch(() => undefined),
+      hydrateShopFromOfflineSession(
+        job.storeConnection.destinationShop.shopDomain,
+      )
+        .then(async (hydrated) => {
+          if (hydrated) await refreshShopScopesIfStale(hydrated);
+        })
+        .catch(() => undefined),
+    ]);
+  } catch {
+    // Best-effort.
+  }
+
+  const freshJob = await db.migrationJob.findFirst({
+    where: migrationJobForShopWhere(params.id!, shop.id),
+    include: {
+      storeConnection: { include: { sourceShop: true, destinationShop: true } },
+    },
+  });
+  if (!freshJob) {
+    throw redirect("/app/migrations");
+  }
+
   const [failureLogs, failedGroups] =
-    job.status === "FAILED"
+    freshJob.status === "FAILED"
       ? await Promise.all([
           db.migrationLog.findMany({
-            where: { migrationJobId: job.id, level: "ERROR" },
+            where: { migrationJobId: freshJob.id, level: "ERROR" },
             orderBy: { createdAt: "desc" },
             take: 5,
           }),
           db.migrationItem.groupBy({
             by: ["stage", "resourceType"],
-            where: { migrationJobId: job.id, status: "FAILED" },
+            where: { migrationJobId: freshJob.id, status: "FAILED" },
             _count: { _all: true },
             orderBy: { _count: { id: "desc" } },
           }),
         ])
       : [[], []];
 
-  const storeScopes = {
-    sourceScope: job.storeConnection.sourceShop.scope,
-    destinationScope: job.storeConnection.destinationShop.scope,
-    sourceShopDomain: job.storeConnection.sourceShop.shopDomain,
-    destinationShopDomain: job.storeConnection.destinationShop.shopDomain,
-  };
+  const storeScopes = storeScopesFromConnection(freshJob.storeConnection);
+  const sourceNeedsReconnect = !shopIsConnected(
+    freshJob.storeConnection.sourceShop,
+  );
+  const destinationNeedsReconnect = !shopIsConnected(
+    freshJob.storeConnection.destinationShop,
+  );
 
   return {
+    currentShopDomain: session.shop,
     job: {
-      id: job.id,
-      status: job.status,
-      type: job.type,
-      currentStage: job.currentStage,
-      failedRecords: job.failedRecords,
-      selectedResources: job.selectedResources as string[],
-      scanSummary: job.scanSummary as ScanSummary | null,
+      id: freshJob.id,
+      status: freshJob.status,
+      type: freshJob.type,
+      currentStage: freshJob.currentStage,
+      failedRecords: freshJob.failedRecords,
+      selectedResources: freshJob.selectedResources as string[],
+      scanSummary: freshJob.scanSummary as ScanSummary | null,
       missingPermissions: liveMissingAppPermissions(storeScopes),
+      sourceNeedsReconnect,
+      destinationNeedsReconnect,
       needsPermissionRescan: needsPermissionRescan(
-        job.scanSummary as ScanSummary | null,
-        job.selectedResources as string[],
+        freshJob.scanSummary as ScanSummary | null,
+        freshJob.selectedResources as string[],
         storeScopes,
       ),
-      source: job.storeConnection.sourceShop.shopDomain,
-      destination: job.storeConnection.destinationShop.shopDomain,
+      source: freshJob.storeConnection.sourceShop.shopDomain,
+      destination: freshJob.storeConnection.destinationShop.shopDomain,
       failure: {
         latestErrors: failureLogs.map((log) => {
           const meta =
@@ -114,14 +154,17 @@ function formatStage(stage: string | null) {
 }
 
 export default function MigrationScan() {
-  const { job } = useLoaderData<typeof loader>();
+  const { job, currentShopDomain } = useLoaderData<typeof loader>();
   const revalidator = useRevalidator();
   const scanFetcher = useFetcher();
 
   const isScanning = job.status === "SCANNING";
   const isMigrationActive = job.status === "QUEUED" || job.status === "RUNNING";
   const isWaitingForStoreApproval =
-    job.status === "SCANNED" && job.missingPermissions.length > 0;
+    job.status === "SCANNED" &&
+    (job.missingPermissions.length > 0 ||
+      job.sourceNeedsReconnect ||
+      job.destinationNeedsReconnect);
 
   useEffect(() => {
     if (!isScanning && !isMigrationActive && !isWaitingForStoreApproval) {
@@ -308,38 +351,59 @@ export default function MigrationScan() {
         </s-section>
       )}
 
-      {job.status === "SCANNED" && summary && missingPermissions.length > 0 && (
-        <>
-          <s-section heading="Source-store approval">
-            <PermissionBanner
-              missing={missingPermissions}
-              authorizeHref={sourceReconnectHref}
-            />
-          </s-section>
-          <s-section heading="Check approval">
-            <s-banner tone="info" heading="Your import is ready to scan">
+      {job.status === "SCANNED" &&
+        summary &&
+        (job.sourceNeedsReconnect || job.destinationNeedsReconnect) && (
+          <s-section heading="Reconnect store">
+            <s-banner
+              tone="warning"
+              heading="Open Duplify on the disconnected store once"
+            >
               <s-stack direction="block" gap="base">
                 <s-paragraph>
-                  After the source-store admin approves access, check approval
-                  to load record counts and prepare your import.
+                  {job.sourceNeedsReconnect
+                    ? `Source access expired for ${job.source}. Open Duplify once on that store (Allow if asked), then come back and scan again. Normal install already includes migration access — no separate "Update this store" step.`
+                    : `Destination access expired for ${job.destination}. Open Duplify once on that store, then scan again.`}
                 </s-paragraph>
-                <s-button
-                  variant="primary"
-                  onClick={() =>
-                    scanFetcher.submit(null, {
-                      method: "post",
-                      action: `/api/migrations/${job.id}/scan`,
-                    })
-                  }
-                  {...(scanFetcher.state !== "idle" ? { loading: true } : {})}
-                >
-                    Check approval &amp; scan
-                </s-button>
+                <s-stack direction="inline" gap="base">
+                  <s-button
+                    variant="primary"
+                    href={`https://admin.shopify.com/store/${(job.sourceNeedsReconnect ? job.source : job.destination).replace(/\.myshopify\.com$/i, "")}/apps/duplify-store`}
+                    target="_blank"
+                  >
+                    Open store app
+                  </s-button>
+                  <s-button
+                    variant="secondary"
+                    onClick={() =>
+                      scanFetcher.submit(null, {
+                        method: "post",
+                        action: `/api/migrations/${job.id}/scan`,
+                      })
+                    }
+                    {...(scanFetcher.state !== "idle" ? { loading: true } : {})}
+                  >
+                    Scan again
+                  </s-button>
+                </s-stack>
               </s-stack>
             </s-banner>
           </s-section>
-        </>
-      )}
+        )}
+
+      {job.status === "SCANNED" &&
+        summary &&
+        missingPermissions.length > 0 &&
+        !job.sourceNeedsReconnect &&
+        !job.destinationNeedsReconnect && (
+          <s-section heading="Store access">
+            <PermissionBanner
+              missing={missingPermissions}
+              authorizeHref={sourceReconnectHref}
+              currentShopDomain={currentShopDomain}
+            />
+          </s-section>
+        )}
 
       {job.status === "SCANNED" && summary && missingPermissions.length === 0 && (
         <>
