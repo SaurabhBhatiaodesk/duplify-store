@@ -1,8 +1,6 @@
 import db from "../../db.server";
 import { encryptToken } from "../crypto/token-cipher";
 import { createAdminClient } from "../shopify/admin-client";
-import { shopCanMigrate } from "../shopify/scopes";
-
 // Ensures the currently-embedded shop has a `Shop` row. Normally this is
 // created by the `afterAuth` hook in shopify.server.ts the moment OAuth
 // completes, but loaders call this defensively (e.g. right after install,
@@ -121,8 +119,8 @@ export async function refreshShopScopesIfStale(shop: {
     if (!shop.isActive || shop.uninstalledAt || !shop.accessTokenEncrypted) {
       return shop.scope;
     }
-    if (shopCanMigrate(shop.scope)) return shop.scope;
 
+    // Always refresh from Shopify — never trust a stale "looks ready" scope string.
     const admin = createAdminClient(shop);
     const result = await admin.graphql<{
       currentAppInstallation: {

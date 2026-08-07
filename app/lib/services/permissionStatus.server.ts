@@ -25,39 +25,37 @@ interface StoreScopes {
 }
 
 /**
- * Install already requests the full published scope set. Connected shops must
- * not see "Store update needed" / Grant permissions spam by default.
- * Only disconnected shops (no offline token) need a reconnect action.
+ * Missing scopes for the selected resources.
+ * - Disconnected shop → single "reconnect" signal
+ * - Connected shop → real per-resource missing scopes (never blank just because
+ *   shopCanMigrate was true on a stale scope string)
  */
 export function liveMissingPermissions(
   selectedResources: string[],
   stores: StoreScopes,
 ): PermissionRequirement[] {
   const resourceTypes = resourceTypesForSelections(selectedResources);
-  const sourceReady =
-    stores.sourceConnected === true || shopCanMigrate(stores.sourceScope);
-  const destinationReady =
-    stores.destinationConnected === true ||
-    shopCanMigrate(stores.destinationScope);
+  const sourceConnected = stores.sourceConnected === true;
+  const destinationConnected = stores.destinationConnected === true;
 
   return [
     ...resourceTypes.map((resourceType) => ({
       resourceType,
-      missing: sourceReady
-        ? []
+      missing: !sourceConnected
+        ? ["reconnect"]
         : missingReadScopes(resourceType, stores.sourceScope),
       shopRole: "source" as const,
       shopDomain: stores.sourceShopDomain,
-      installed: stores.sourceConnected !== false,
+      installed: sourceConnected,
     })),
     ...resourceTypes.map((resourceType) => ({
       resourceType,
-      missing: destinationReady
-        ? []
+      missing: !destinationConnected
+        ? ["reconnect"]
         : missingScopes(resourceType, stores.destinationScope),
       shopRole: "destination" as const,
       shopDomain: stores.destinationShopDomain,
-      installed: stores.destinationConnected !== false,
+      installed: destinationConnected,
     })),
   ].filter((requirement) => requirement.missing.length > 0);
 }
@@ -68,13 +66,11 @@ export function liveMissingAppPermissions(
   const sourceConnected = stores.sourceConnected === true;
   const destinationConnected = stores.destinationConnected === true;
 
-  // Connected = access by default. Never invent a missing-scope grant loop.
   const requirements: PermissionRequirement[] = [];
 
   if (!sourceConnected && !shopCanMigrate(stores.sourceScope)) {
     requirements.push({
       resourceType: "app permissions",
-      // One clear reconnect signal — not 20 fake missing scopes.
       missing: ["reconnect"],
       shopRole: "source",
       shopDomain: stores.sourceShopDomain,
@@ -99,7 +95,7 @@ export function countLiveMissingPermissions(
   selectedResources: string[],
   stores: StoreScopes,
 ) {
-  return liveMissingAppPermissions(stores).length;
+  return liveMissingPermissions(selectedResources, stores).length;
 }
 
 export function scanHadMissingPermissions(scanSummary: ScanSummary | null) {
@@ -112,12 +108,12 @@ export function scanHadMissingPermissions(scanSummary: ScanSummary | null) {
 
 export function needsPermissionRescan(
   scanSummary: ScanSummary | null,
-  _selectedResources: string[],
+  selectedResources: string[],
   stores: StoreScopes,
 ) {
   return (
     scanHadMissingPermissions(scanSummary) &&
-    liveMissingAppPermissions(stores).length === 0
+    liveMissingPermissions(selectedResources, stores).length === 0
   );
 }
 

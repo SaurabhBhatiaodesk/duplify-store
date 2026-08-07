@@ -6,6 +6,7 @@ import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { DiscountBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 
 interface DiscountCodeNodesResponse {
   codeDiscountNodes: {
@@ -128,7 +129,7 @@ export async function runDiscountsStage(job: MigrationJobWithConnection): Promis
     try {
       const result = await destAdmin.graphql<DiscountCreateResponse>(DISCOUNT_CODE_BASIC_CREATE_MUTATION, { basicCodeDiscount: input }, 10);
       if (result.discountCodeBasicCreate.userErrors.length > 0 || !result.discountCodeBasicCreate.codeDiscountNode) {
-        const message = result.discountCodeBasicCreate.userErrors.map((e) => e.message).join("; ") || "Unknown discountCodeBasicCreate error";
+        const message = joinUserErrors(result.discountCodeBasicCreate?.userErrors, "Unknown discountCodeBasicCreate error");
         await db.migrationItem.update({ where: { id: item.id }, data: { status: "FAILED", errorMessage: message } });
         await logEvent(job.id, "ERROR", message, { itemId: item.id });
         continue;

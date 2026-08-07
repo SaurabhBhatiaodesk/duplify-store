@@ -12,6 +12,7 @@ import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ConflictStrategy, PageBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 
 export async function ensurePageItems(job: MigrationJobWithConnection): Promise<void> {
   const existing = await db.migrationItem.count({ where: { migrationJobId: job.id, resourceType: "page" } });
@@ -128,7 +129,7 @@ export async function runPagesStage(job: MigrationJobWithConnection): Promise<vo
           ).pageUpdate
         : (await destAdmin.graphql<PageCreateResponse>(PAGE_CREATE_MUTATION, { page: input }, 10)).pageCreate;
       if (outcome.userErrors.length > 0 || !outcome.page) {
-        await fail(job.id, item.id, outcome.userErrors.map((e) => e.message).join("; ") || `Unknown page${shouldUpdate ? "Update" : "Create"} error`);
+        await fail(job.id, item.id, joinUserErrors(outcome.userErrors, `Unknown page${shouldUpdate ? "Update" : "Create"} error`));
         continue;
       }
       const destinationId = outcome.page.id;

@@ -11,6 +11,7 @@ import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ConflictStrategy, CustomerBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 
 function normalizeCustomerPayload(
   raw: CustomerBulkPayload,
@@ -244,11 +245,10 @@ async function processCustomerItem(
       (result.customerCreate.userErrors?.length ?? 0) > 0 ||
       !result.customerCreate.customer
     ) {
-      const message =
-        (result.customerCreate?.userErrors ?? [])
-          .map((e) => e.message)
-          .filter(Boolean)
-          .join("; ") || "Unknown customerCreate error";
+      const message = joinUserErrors(
+        result.customerCreate?.userErrors,
+        "Unknown customerCreate error",
+      );
       await fail(job.id, item.id, message);
       return;
     }

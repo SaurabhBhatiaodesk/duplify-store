@@ -6,10 +6,11 @@ import { startMigration } from "../lib/services/orchestrator.service";
 import { logEvent } from "../lib/services/migrationJob.service";
 import type { ScanSummary } from "../lib/services/scan.service";
 import {
-  liveMissingAppPermissions,
+  liveMissingPermissions,
   needsPermissionRescan,
   storeScopesFromConnection,
 } from "../lib/services/permissionStatus.server";
+import { refreshShopScopesIfStale } from "../lib/services/storeConnection.service";
 import { migrationJobForShopWhere } from "../lib/services/storeConnection.service";
 import { verifyMigrationStoreAccess } from "../lib/services/shopAccess.server";
 import { enqueueOrRunInline } from "../lib/queue/enqueueOrRun.server";
@@ -39,14 +40,28 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   }
 
   const scanSummary = job.scanSummary as ScanSummary | null;
-  const storeScopes = storeScopesFromConnection(job.storeConnection);
   const selectedResources = job.selectedResources as string[];
-  const missingPermissions = liveMissingAppPermissions(storeScopes);
+
+  // Refresh live scopes before gating Start — avoids stale "Ready" / false blocks.
+  await refreshShopScopesIfStale(job.storeConnection.sourceShop);
+  await refreshShopScopesIfStale(job.storeConnection.destinationShop);
+  const freshJob = await db.migrationJob.findFirst({
+    where: { id: job.id },
+    include: {
+      storeConnection: { include: { sourceShop: true, destinationShop: true } },
+    },
+  });
+  const connection = freshJob?.storeConnection ?? job.storeConnection;
+  const storeScopes = storeScopesFromConnection(connection);
+  const missingPermissions = liveMissingPermissions(
+    selectedResources,
+    storeScopes,
+  );
   if (missingPermissions.length > 0) {
     await logEvent(
       job.id,
       "WARN",
-      "Migration start blocked because a store needs reconnect",
+      "Migration start blocked because selected resources are missing access",
       {
         missingPermissions,
       },

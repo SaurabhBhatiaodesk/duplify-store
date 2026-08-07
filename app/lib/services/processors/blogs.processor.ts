@@ -13,6 +13,7 @@ import {
 import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ArticleBulkPayload, BlogBulkPayload, ConflictStrategy } from "../types";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
 
 interface BlogWithArticlesPayload {
@@ -160,7 +161,7 @@ export async function runBlogsStage(job: MigrationJobWithConnection): Promise<vo
             ).blogUpdate
           : (await destAdmin.graphql<BlogCreateResponse>(BLOG_CREATE_MUTATION, { blog: input }, 10)).blogCreate;
         if (outcome.userErrors.length > 0 || !outcome.blog) {
-          const message = outcome.userErrors.map((e) => e.message).join("; ") || `Unknown blog${shouldUpdate ? "Update" : "Create"} error`;
+          const message = joinUserErrors(outcome.userErrors, `Unknown blog${shouldUpdate ? "Update" : "Create"} error`);
           await fail(job.id, item.id, message);
           await recordFailedArticles(job.id, articles, "Parent blog failed to create");
           continue;
@@ -253,7 +254,7 @@ async function processArticle(
   try {
     const result = await destAdmin.graphql<ArticleCreateResponse>(ARTICLE_CREATE_MUTATION, { article: input }, 10);
     if (result.articleCreate.userErrors.length > 0 || !result.articleCreate.article) {
-      const message = result.articleCreate.userErrors.map((e) => e.message).join("; ") || "Unknown articleCreate error";
+      const message = joinUserErrors(result.articleCreate?.userErrors, "Unknown articleCreate error");
       await db.migrationItem.update({ where: { id: migrationItem.id }, data: { status: "FAILED", errorMessage: message } });
       return;
     }

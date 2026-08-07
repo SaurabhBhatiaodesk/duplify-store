@@ -6,6 +6,7 @@ import { getLiveMapping, getMappingBySourceIdAnyType, saveMapping } from "../idM
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ConflictStrategy, MenuBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 
 interface MenusResponse {
   menus: {
@@ -109,7 +110,7 @@ export async function runMenusStage(job: MigrationJobWithConnection): Promise<vo
     try {
       const result = await destAdmin.graphql<MenuCreateResponse>(MENU_CREATE_MUTATION, { title: menu.title, handle, items }, 15);
       if (result.menuCreate.userErrors.length > 0 || !result.menuCreate.menu) {
-        const message = result.menuCreate.userErrors.map((e) => e.message).join("; ") || "Unknown menuCreate error";
+        const message = joinUserErrors(result.menuCreate?.userErrors, "Unknown menuCreate error");
         await db.migrationItem.update({ where: { id: item.id }, data: { status: "FAILED", errorMessage: message } });
         await logEvent(job.id, "ERROR", message, { itemId: item.id });
         continue;

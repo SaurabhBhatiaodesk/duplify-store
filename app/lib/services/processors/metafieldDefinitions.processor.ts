@@ -17,6 +17,7 @@ import {
   shouldSkipDefinitionCreateError,
   skippedDefinitionMessage,
 } from "./shopify-error-classifier";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 
 function definitionSourceId(payload: MetafieldDefinitionBulkPayload): string {
   return `${payload.ownerType}:${payload.namespace}:${payload.key}`;
@@ -259,7 +260,7 @@ export async function runMetafieldDefinitionsStage(job: MigrationJobWithConnecti
       }
 
       if (userErrors.length > 0 || !result.metafieldDefinitionCreate?.createdDefinition) {
-        const message = userErrors.map((e) => e.message).join("; ") || "Unknown metafieldDefinitionCreate error";
+        const message = joinUserErrors(userErrors, "Unknown metafieldDefinitionCreate error");
         await db.migrationItem.update({ where: { id: item.id }, data: { status: "FAILED", errorMessage: message } });
         await logEvent(job.id, "ERROR", message, { itemId: item.id });
         continue;

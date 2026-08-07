@@ -15,6 +15,7 @@ import {
   recordFailedVariantItems,
   recordVariantMigrationItems,
 } from "./variants.processor";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 
 export const MAX_ATTEMPTS = 3;
 
@@ -335,11 +336,10 @@ async function processProductItem(
     (result.productSet.userErrors?.length ?? 0) > 0 ||
     !result.productSet.product
   ) {
-    const message =
-      (result.productSet?.userErrors ?? [])
-        .map((e) => e.message)
-        .filter(Boolean)
-        .join("; ") || "Unknown productSet error";
+    const message = joinUserErrors(
+      result.productSet?.userErrors,
+      "Unknown productSet error",
+    );
     await failItem(job.id, item.id, item.attempt, message);
     await recordFailedVariantItems({
       migrationJobId: job.id,

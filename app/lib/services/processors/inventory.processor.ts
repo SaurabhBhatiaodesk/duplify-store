@@ -6,6 +6,7 @@ import { INVENTORY_SET_QUANTITIES_MUTATION, type InventorySetQuantitiesInput } f
 import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 
 interface InventoryItemPayload {
   variantSourceId: string;
@@ -165,10 +166,10 @@ export async function runInventoryStage(job: MigrationJobWithConnection): Promis
       const result = await destAdmin.graphql<SetQuantitiesResponse>(INVENTORY_SET_QUANTITIES_MUTATION, { input }, 15);
       const setResult = result.inventorySetQuantities;
       if ((setResult?.userErrors?.length ?? 0) > 0) {
-        const message = (setResult?.userErrors ?? [])
-          .map((e) => e.message)
-          .filter(Boolean)
-          .join("; ") || "Unknown inventorySetQuantities error";
+        const message = joinUserErrors(
+          setResult?.userErrors,
+          "Unknown inventorySetQuantities error",
+        );
         await db.migrationItem.update({ where: { id: item.id }, data: { status: "FAILED", errorMessage: message } });
         await logEvent(job.id, "ERROR", message, { itemId: item.id });
         continue;

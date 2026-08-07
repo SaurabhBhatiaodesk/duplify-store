@@ -6,6 +6,7 @@ import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ProductBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
 import { isInvalidRemoteFileError } from "./shopify-error-classifier";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 
 // Runs after Products: attaches each source product's images to the matching
 // destination product via productCreateMedia, which lets Shopify fetch and
@@ -106,7 +107,7 @@ export async function runImagesStage(job: MigrationJobWithConnection): Promise<v
       );
 
       if (result.productCreateMedia.mediaUserErrors.length > 0) {
-        const message = result.productCreateMedia.mediaUserErrors.map((e) => e.message).join("; ");
+        const message = joinUserErrors(result.productCreateMedia?.mediaUserErrors, "Unknown productCreateMedia error");
         if (isInvalidRemoteFileError(message)) {
           await db.migrationItem.update({
             where: { id: item.id },

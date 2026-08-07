@@ -7,6 +7,7 @@ import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { OrderBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 
 export async function ensureOrderItems(job: MigrationJobWithConnection): Promise<void> {
   const existing = await db.migrationItem.count({ where: { migrationJobId: job.id, resourceType: "order" } });
@@ -125,7 +126,7 @@ export async function runOrdersStage(job: MigrationJobWithConnection): Promise<v
     try {
       const result = await destAdmin.graphql<DraftOrderCreateResponse>(DRAFT_ORDER_CREATE_MUTATION, { input }, 20);
       if (result.draftOrderCreate.userErrors.length > 0 || !result.draftOrderCreate.draftOrder) {
-        const message = result.draftOrderCreate.userErrors.map((e) => e.message).join("; ") || "Unknown draftOrderCreate error";
+        const message = joinUserErrors(result.draftOrderCreate?.userErrors, "Unknown draftOrderCreate error");
         await db.migrationItem.update({ where: { id: item.id }, data: { status: "FAILED", errorMessage: message } });
         await logEvent(job.id, "ERROR", message, { itemId: item.id });
         continue;

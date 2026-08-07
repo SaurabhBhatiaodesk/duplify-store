@@ -13,6 +13,7 @@ import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { CollectionBulkPayload, ConflictStrategy, ProductBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 
 // Runs last: needs the Products stage's IdMapping entries to translate a
 // collection's member product ids from source to destination.
@@ -202,9 +203,10 @@ async function processCollectionItem(
             ).collectionCreate;
 
         if (outcome.userErrors.length > 0 || !outcome.collection) {
-          const message =
-            outcome.userErrors.map((e) => e.message).join("; ") ||
-            `Unknown collection${shouldUpdate ? "Update" : "Create"} error`;
+          const message = joinUserErrors(
+            outcome.userErrors,
+            `Unknown collection${shouldUpdate ? "Update" : "Create"} error`,
+          );
           await fail(job.id, item.id, message);
           return;
         }

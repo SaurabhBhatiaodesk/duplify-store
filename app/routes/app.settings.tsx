@@ -6,7 +6,6 @@ import db from "../db.server";
 import {
   PUBLISHED_SCOPES,
   missingRequestedScopes,
-  shopCanMigrate,
 } from "../lib/shopify/scopes";
 import { listCustomerDataExports } from "../lib/services/privacyCompliance.server";
 
@@ -99,8 +98,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     shopDomain: shop.shopDomain,
     scope: liveScope,
     permissionStores: Array.from(stores.values()).map((store) => {
-      const ready = shopCanMigrate(store.scope);
-      const missingScopes = ready ? [] : missingRequestedScopes(store.scope);
+      const missingScopes = missingRequestedScopes(store.scope);
       const grantedCount = DISPLAY_SCOPES.length - missingScopes.length;
       return {
         shopDomain: store.shopDomain,
@@ -151,9 +149,7 @@ export default function Settings() {
   const data = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const revalidator = useRevalidator();
-  const missingScopes = shopCanMigrate(data.scope || "")
-    ? []
-    : missingRequestedScopes(data.scope || "");
+  const missingScopes = missingRequestedScopes(data.scope || "");
 
   // "baseline" is the last-saved value the save bar's dirty check compares
   // against — starts from the loader, and is advanced (not the loader data

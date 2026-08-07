@@ -22,6 +22,7 @@ import {
   shouldSkipDefinitionCreateError,
   skippedDefinitionMessage,
 } from "./shopify-error-classifier";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 
 // --- Definitions -----------------------------------------------------------
 
@@ -244,7 +245,7 @@ export async function runMetaobjectDefinitionsStage(job: MigrationJobWithConnect
         continue;
       }
       if (userErrors.length > 0 || !result.metaobjectDefinitionCreate?.metaobjectDefinition) {
-        const message = userErrors.map((e) => e.message).join("; ") || "Unknown metaobjectDefinitionCreate error";
+        const message = joinUserErrors(userErrors, "Unknown metaobjectDefinitionCreate error");
         await db.migrationItem.update({ where: { id: item.id }, data: { status: "FAILED", errorMessage: message } });
         await logEvent(job.id, "ERROR", message, { itemId: item.id });
         continue;
@@ -375,7 +376,7 @@ export async function runMetaobjectsStage(job: MigrationJobWithConnection): Prom
     try {
       const result = await destAdmin.graphql<MetaobjectCreateResponse>(METAOBJECT_CREATE_MUTATION, { metaobject: input }, 10);
       if (result.metaobjectCreate.userErrors.length > 0 || !result.metaobjectCreate.metaobject) {
-        const message = result.metaobjectCreate.userErrors.map((e) => e.message).join("; ") || "Unknown metaobjectCreate error";
+        const message = joinUserErrors(result.metaobjectCreate?.userErrors, "Unknown metaobjectCreate error");
         await db.migrationItem.update({ where: { id: item.id }, data: { status: "FAILED", errorMessage: message } });
         await logEvent(job.id, "ERROR", message, { itemId: item.id });
         continue;

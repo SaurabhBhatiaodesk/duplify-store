@@ -1,4 +1,5 @@
 import type { AdminClient } from "./admin-client";
+import { joinUserErrors } from "./graphql-safe";
 
 const PUBLICATIONS_QUERY = `#graphql
   query duplifyPublications {
@@ -106,9 +107,12 @@ export async function publishToOnlineStore(
       },
       10,
     );
-    const errors = result.publishablePublish.userErrors;
-    if (errors.length > 0) {
-      return { ok: false, message: errors.map((e) => e.message).join("; ") };
+    const errors = result.publishablePublish?.userErrors;
+    if ((errors?.length ?? 0) > 0) {
+      return {
+        ok: false,
+        message: joinUserErrors(errors, "Unknown publishablePublish error"),
+      };
     }
     return { ok: true };
   } catch (error) {
