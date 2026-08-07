@@ -13,6 +13,7 @@ import {
   THEME_PROCESSING_QUERY,
   type ThemeFileUpsertInput,
 } from "../../shopify/mutations/theme";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 import { saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ThemeFileBulkPayload } from "../types";
@@ -28,18 +29,18 @@ import type { MigrationJobWithConnection } from "../orchestrator.service";
 interface ThemeFilesNode {
   id: string;
   name: string;
-  files: {
-    edges: Array<{
+  files?: {
+    edges?: Array<{
       node: {
         filename: string;
         body: { content?: string; contentBase64?: string; url?: string } | null;
       };
     }>;
-    pageInfo: { hasNextPage: boolean; endCursor: string | null };
-  };
+    pageInfo?: { hasNextPage: boolean; endCursor: string | null };
+  } | null;
 }
 interface MainThemeResponse {
-  themes: { edges: Array<{ node: ThemeFilesNode }> };
+  themes?: { edges?: Array<{ node: ThemeFilesNode }> };
 }
 interface ThemeByIdResponse {
   node: ThemeFilesNode | null;
@@ -81,7 +82,7 @@ export async function ensureThemeItems(job: MigrationJobWithConnection): Promise
         { after },
         20,
       );
-      theme = result.themes.edges[0]?.node;
+      theme = result.themes?.edges?.[0]?.node;
     }
 
     if (!theme) {
@@ -94,14 +95,25 @@ export async function ensureThemeItems(job: MigrationJobWithConnection): Promise
     }
     themeId = theme.id;
     themeName = theme.name;
-    for (const edge of theme.files.edges) {
+    for (const edge of theme.files?.edges ?? []) {
       const body = toThemeFilePayload(edge.node.filename, edge.node.body);
       if (body) {
         files.push(body);
       }
     }
-    after = theme.files.pageInfo.hasNextPage ? theme.files.pageInfo.endCursor : null;
+    after = theme.files?.pageInfo?.hasNextPage
+      ? theme.files.pageInfo.endCursor
+      : null;
   } while (after);
+
+  if (files.length === 0) {
+    await logEvent(
+      job.id,
+      "WARN",
+      `Source theme "${themeName}" exported 0 readable files — check read_themes access on the source store`,
+    );
+    return;
+  }
 
   await db.migrationItem.create({
     data: {
@@ -121,8 +133,8 @@ export async function ensureThemeItems(job: MigrationJobWithConnection): Promise
 }
 
 interface ThemesByNameResponse {
-  themes: {
-    edges: Array<{ node: { id: string; name: string; role: string } }>;
+  themes?: {
+    edges?: Array<{ node: { id: string; name: string; role: string } }>;
   };
 }
 interface ThemeFilesUpsertResponse {
@@ -215,10 +227,11 @@ export async function runThemeStage(job: MigrationJobWithConnection): Promise<vo
           { themeId: destinationThemeId, files: input },
           Math.ceil(batch.length / 2) + 5,
         );
-        if (result.themeFilesUpsert.userErrors.length > 0) {
-          const message = result.themeFilesUpsert.userErrors
-            .map((e) => e.message)
-            .join("; ");
+        if ((result.themeFilesUpsert?.userErrors?.length ?? 0) > 0) {
+          const message = joinUserErrors(
+            result.themeFilesUpsert?.userErrors,
+            "themeFilesUpsert failed",
+          );
           await logEvent(
             job.id,
             "WARN",
@@ -282,11 +295,12 @@ async function resolveOrCreateDestinationTheme(
     undefined,
     10,
   );
+  const themeEdges = themesResult.themes?.edges ?? [];
   const existing =
-    themesResult.themes.edges.find(
+    themeEdges.find(
       (e) => e.node.name === themeName && e.node.role !== "MAIN",
     )?.node.id ??
-    themesResult.themes.edges.find(
+    themeEdges.find(
       (e) =>
         e.node.name === `Duplify — ${themeName}` && e.node.role !== "MAIN",
     )?.node.id ??
@@ -318,10 +332,15 @@ async function resolveOrCreateDestinationTheme(
     20,
   );
 
-  if (created.themeCreate.userErrors.length > 0 || !created.themeCreate.theme) {
-    const message =
-      created.themeCreate.userErrors.map((e) => e.message).join("; ") ||
-      "themeCreate failed";
+  if (
+    !created.themeCreate ||
+    (created.themeCreate.userErrors?.length ?? 0) > 0 ||
+    !created.themeCreate.theme
+  ) {
+    const message = joinUserErrors(
+      created.themeCreate?.userErrors,
+      "themeCreate failed",
+    );
     throw new Error(message);
   }
 
@@ -365,10 +384,10 @@ async function pruneScaffoldFiles(
     );
     const theme = result.node;
     if (!theme) break;
-    for (const edge of theme.files.edges) {
+    for (const edge of theme.files?.edges ?? []) {
       destFiles.push(edge.node.filename);
     }
-    after = theme.files.pageInfo.hasNextPage
+    after = theme.files?.pageInfo?.hasNextPage
       ? theme.files.pageInfo.endCursor
       : null;
   } while (after);
@@ -383,13 +402,13 @@ async function pruneScaffoldFiles(
       { themeId, files: batch },
       10,
     );
-    if (result.themeFilesDelete.userErrors.length > 0) {
+    if ((result.themeFilesDelete?.userErrors?.length ?? 0) > 0) {
       await logEvent(
         migrationJobId,
         "WARN",
-        `Could not delete some scaffold theme files: ${result.themeFilesDelete.userErrors
-          .map((e) => e.message)
-          .join("; ")}`,
+        `Could not delete some scaffold theme files: ${joinUserErrors(
+          result.themeFilesDelete?.userErrors,
+        )}`,
       );
     }
   }
