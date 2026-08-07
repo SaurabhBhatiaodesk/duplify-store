@@ -26,6 +26,26 @@ export default function Documentation() {
         </s-ordered-list>
       </s-section>
 
+      <s-section heading="If you see “Reconnect store”">
+        <s-paragraph>
+          Duplify needs an active app connection on both the Source and
+          Destination stores. This can happen if a store was uninstalled,
+          access was revoked, or its connection expired.
+        </s-paragraph>
+        <s-ordered-list>
+          <s-list-item>
+            Click <s-text type="strong">Open store app</s-text> in the warning.
+          </s-list-item>
+          <s-list-item>
+            Sign in to the store named in the warning and open Duplify Store.
+          </s-list-item>
+          <s-list-item>
+            Approve access if Shopify asks, return to the migration, then click{" "}
+            <s-text type="strong">Scan again</s-text>.
+          </s-list-item>
+        </s-ordered-list>
+      </s-section>
+
       <s-section heading="What does not migrate">
         <s-unordered-list>
           <s-list-item>Customer passwords</s-list-item>
