@@ -18,6 +18,7 @@ export const METAFIELD_DEFINITIONS_QUERY = `#graphql
     metafieldDefinitions(first: 100, after: $after, ownerType: $ownerType) {
       edges {
         node {
+          id
           namespace
           key
           name
@@ -26,6 +27,21 @@ export const METAFIELD_DEFINITIONS_QUERY = `#graphql
         }
       }
       pageInfo { hasNextPage endCursor }
+    }
+  }
+`;
+
+/** Lookup a single definition on destination by ownerType + namespace + key. */
+export const METAFIELD_DEFINITION_LOOKUP_QUERY = `#graphql
+  query duplifyMetafieldDefinitionLookup(
+    $ownerType: MetafieldOwnerType!
+    $namespace: String!
+    $key: String!
+  ) {
+    metafieldDefinitions(first: 1, ownerType: $ownerType, namespace: $namespace, key: $key) {
+      edges {
+        node { id namespace key }
+      }
     }
   }
 `;

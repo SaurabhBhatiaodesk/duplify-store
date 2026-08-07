@@ -182,7 +182,7 @@ export async function cancelMigration(migrationJobId: string): Promise<void> {
 // kept separate from resumeMigration (rather than calling it here) so this
 // stays a fast, synchronous web-request-safe DB write.
 export async function markItemsForRetry(migrationJobId: string): Promise<number> {
-  const result = await db.migrationItem.updateMany({
+  const failed = await db.migrationItem.updateMany({
     where: {
       migrationJobId,
       status: "FAILED",
@@ -191,9 +191,24 @@ export async function markItemsForRetry(migrationJobId: string): Promise<number>
     data: { status: "RETRYING" },
   });
 
-  if (result.count > 0) {
-    await logEvent(migrationJobId, "INFO", `Marked ${result.count} failed item(s) for retry`);
+  // Remap skipped metafield/metaobject definitions that already exist on dest.
+  const skippedDefs = await db.migrationItem.updateMany({
+    where: {
+      migrationJobId,
+      status: "SKIPPED",
+      resourceType: { in: ["metafield_definition", "metaobject_definition"] },
+    },
+    data: { status: "RETRYING" },
+  });
+
+  const count = failed.count + skippedDefs.count;
+  if (count > 0) {
+    await logEvent(
+      migrationJobId,
+      "INFO",
+      `Marked ${count} item(s) for retry (${failed.count} failed, ${skippedDefs.count} skipped definitions)`,
+    );
   }
 
-  return result.count;
+  return count;
 }

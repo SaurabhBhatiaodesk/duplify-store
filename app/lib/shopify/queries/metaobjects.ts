@@ -3,6 +3,7 @@ export const METAOBJECT_DEFINITIONS_QUERY = `#graphql
     metaobjectDefinitions(first: 100, after: $after) {
       edges {
         node {
+          id
           type
           name
           fieldDefinitions {
@@ -14,6 +15,16 @@ export const METAOBJECT_DEFINITIONS_QUERY = `#graphql
         }
       }
       pageInfo { hasNextPage endCursor }
+    }
+  }
+`;
+
+/** Lookup an existing definition on destination by type. */
+export const METAOBJECT_DEFINITION_BY_TYPE_QUERY = `#graphql
+  query duplifyMetaobjectDefinitionByType($type: String!) {
+    metaobjectDefinitionByType(type: $type) {
+      id
+      type
     }
   }
 `;

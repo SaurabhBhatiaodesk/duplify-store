@@ -174,6 +174,14 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     return { ...def, total, completed, failed, skipped };
   });
 
+  const skippedDefinitionRecords = sheets
+    .filter(
+      (s) =>
+        s.resourceType === "metafield_definition" ||
+        s.resourceType === "metaobject_definition",
+    )
+    .reduce((sum, s) => sum + s.skipped, 0);
+
   const storeScopes = storeScopesFromConnection(job.storeConnection);
   const missingPermissions = liveMissingAppPermissions(storeScopes);
 
@@ -187,6 +195,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       completedRecords: job.completedRecords,
       failedRecords: job.failedRecords,
       skippedRecords: job.skippedRecords,
+      skippedDefinitionRecords,
       startedAt: job.startedAt,
       completedAt: job.completedAt,
       source: job.storeConnection.sourceShop.shopDomain,
@@ -222,6 +231,13 @@ export default function MigrationProgress() {
   const hasMissingPermissions = job.missingPermissions.length > 0;
   const canStartMigration = isScanComplete && !hasMissingPermissions;
   const sourceReconnectHref = `/auth/external/begin?shop=${encodeURIComponent(job.source)}&role=SOURCE`;
+  const retryableCount = job.failedRecords + (job.skippedDefinitionRecords ?? 0);
+  const retryLabel =
+    job.failedRecords > 0 && (job.skippedDefinitionRecords ?? 0) > 0
+      ? `Retry ${job.failedRecords} failed + ${job.skippedDefinitionRecords} skipped definition(s)`
+      : job.failedRecords > 0
+        ? `Retry ${job.failedRecords} failed record(s)`
+        : `Retry ${job.skippedDefinitionRecords} skipped definition(s)`;
 
   useEffect(() => {
     if (!isActive) return;
@@ -426,14 +442,14 @@ export default function MigrationProgress() {
 
       <s-section heading="Actions">
         <s-button-group>
-          {job.failedRecords > 0 && (
+          {retryableCount > 0 && (
             <Form
               method="post"
               action={`/api/migrations/${job.id}/retry`}
               id="retry-form"
             >
               <s-button slot="primary-action" type="submit" variant="primary">
-                Retry {job.failedRecords} failed record(s)
+                {retryLabel}
               </s-button>
             </Form>
           )}
