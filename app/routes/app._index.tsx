@@ -25,6 +25,10 @@ import { HeroBanner } from "../components/dashboard/HeroBanner";
 import { MigrationList } from "../components/dashboard/MigrationList";
 import { EmptyState } from "../components/shared/EmptyState";
 
+// Shopify must approve write_themes before a public app can create or edit
+// even an unpublished theme. Enable only after that exemption is approved.
+const THEME_MIGRATION_ENABLED = false;
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = await db.shop.findUnique({
@@ -263,7 +267,6 @@ const ALL_RESOURCES = [
   "metaobjects",
   "discounts",
   "orders",
-  "theme",
 ];
 
 const TYPE_TO_RESOURCES: Record<string, string[]> = {
@@ -295,6 +298,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     selectedResources = form.getAll("resources").map(String);
   } else {
     selectedResources = TYPE_TO_RESOURCES[type] ?? [];
+  }
+
+  if (!THEME_MIGRATION_ENABLED && selectedResources.includes("theme")) {
+    return {
+      error:
+        "Theme migration is temporarily unavailable while Shopify approval is pending. Other store data can still be migrated.",
+    };
   }
 
   if (!storeConnectionId || selectedResources.length === 0) {
@@ -403,7 +413,11 @@ const MIGRATION_TYPES: Array<{
     label: "Content only (pages, blogs, files, menus)",
     supported: true,
   },
-  { value: "THEME", label: "Theme only", supported: true },
+  {
+    value: "THEME",
+    label: "Theme only",
+    supported: THEME_MIGRATION_ENABLED,
+  },
   { value: "CUSTOM", label: "Custom selection", supported: true },
 ];
 
@@ -422,7 +436,6 @@ const CUSTOM_RESOURCE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "metaobjects", label: "Metaobject entries" },
   { value: "discounts", label: "Discounts (basic codes only)" },
   { value: "orders", label: "Orders (recreated as draft orders)" },
-  { value: "theme", label: "Theme files" },
 ];
 
 interface SourceTheme {
@@ -556,6 +569,26 @@ export default function Overview() {
                 Choose a connected store pair, select what to copy, then run the
                 scan. Connected pairs are ready to scan — no extra install step.
               </s-paragraph>
+              {!THEME_MIGRATION_ENABLED && (
+                <s-banner
+                  tone="warning"
+                  heading="Theme migration is temporarily unavailable"
+                >
+                  <s-paragraph>
+                    Shopify must approve Duplify’s protected theme permission
+                    before a public app can create or edit an unpublished
+                    theme. Full store migration currently excludes theme files;
+                    other store data can still migrate.
+                  </s-paragraph>
+                  <s-button
+                    slot="secondary-actions"
+                    href="/app/documentation#theme-migration"
+                    variant="secondary"
+                  >
+                    Learn why
+                  </s-button>
+                </s-banner>
+              )}
               <s-select
                 name="storeConnectionId"
                 label="Store pair"
@@ -654,6 +687,12 @@ export default function Overview() {
                           Passwords, payment gateways, staff accounts, domains,
                           and app subscriptions are never copied.
                         </s-paragraph>
+                        {!THEME_MIGRATION_ENABLED && (
+                          <s-paragraph>
+                            Theme files are not included while Shopify approval
+                            for theme migration is pending.
+                          </s-paragraph>
+                        )}
                         <s-paragraph>
                           Product drafts and unpublished content copy only when
                           selected resources include them; metafield{" "}

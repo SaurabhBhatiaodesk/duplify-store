@@ -6,7 +6,7 @@ export default function Documentation() {
           Duplify Store copies data from one Shopify store (Source) to another
           (Destination) — products, variants, images, inventory, collections,
           customers, pages, blogs, files, menus, metafield definitions,
-          metaobjects, discounts, orders (as draft orders), and theme files.
+          metaobjects, discounts, and orders (as draft orders).
         </s-paragraph>
       </s-section>
 
@@ -24,6 +24,26 @@ export default function Documentation() {
           <s-list-item>Start the migration and watch live progress.</s-list-item>
           <s-list-item>Retry any failed records from the progress page.</s-list-item>
         </s-ordered-list>
+      </s-section>
+
+      <s-section heading="Theme migration" id="theme-migration">
+        <s-banner
+          tone="warning"
+          heading="Temporarily unavailable while Shopify approval is pending"
+        >
+          <s-paragraph>
+            Shopify requires a protected permission before a public app can
+            create or edit even an unpublished destination theme. Until
+            Shopify approves Duplify’s theme permission, Full store migration
+            excludes theme files so the rest of your migration can complete
+            successfully.
+          </s-paragraph>
+        </s-banner>
+        <s-paragraph>
+          When approval is available, Duplify will create an unpublished theme
+          only. It never publishes or replaces your live theme automatically;
+          you review and publish it yourself from Online Store → Themes.
+        </s-paragraph>
       </s-section>
 
       <s-section heading="If you see “Reconnect store”">
