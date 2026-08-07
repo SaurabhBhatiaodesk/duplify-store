@@ -11,6 +11,7 @@ import {
   storeScopesFromConnection,
 } from "../lib/services/permissionStatus.server";
 import { migrationJobForShopWhere } from "../lib/services/storeConnection.service";
+import { verifyMigrationStoreAccess } from "../lib/services/shopAccess.server";
 import { enqueueOrRunInline } from "../lib/queue/enqueueOrRun.server";
 
 export const loader = async ({ params }: LoaderFunctionArgs) => {
@@ -53,13 +54,22 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return redirect(`/app/migrations/${job.id}/scan`);
   }
 
-  // Stale scans that were taken before scopes healed: auto-allow start when
-  // live scopes are fine. The migration processors re-check access per item.
+  // Live API ping — do not start if Shopify still rejects a store token.
+  const badShop = await verifyMigrationStoreAccess(job.storeConnection);
+  if (badShop) {
+    await logEvent(
+      job.id,
+      "WARN",
+      `Migration start blocked: reconnect ${badShop} (invalid access token)`,
+    );
+    return redirect(`/app/migrations/${job.id}/scan`);
+  }
+
   if (needsPermissionRescan(scanSummary, selectedResources, storeScopes)) {
     await logEvent(
       job.id,
       "INFO",
-      "Starting migration after scopes healed; processors will re-check access",
+      "Starting migration after a fresh access check",
     );
   }
 
