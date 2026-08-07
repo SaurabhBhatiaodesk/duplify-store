@@ -1,5 +1,6 @@
 import type { AdminClient } from "./admin-client";
 import { sleep } from "./rate-limiter";
+import { asArray, joinUserErrors } from "./graphql-safe";
 
 // Shopify's Bulk Operations API: submit a query, poll until Shopify finishes
 // exporting it to a JSONL file, then stream that file back. This is the only
@@ -24,7 +25,7 @@ interface BulkOperationRunQueryResponse {
   bulkOperationRunQuery: {
     bulkOperation: { id: string; status: string } | null;
     userErrors: Array<{ field: string[]; message: string }>;
-  };
+  } | null;
 }
 
 interface CurrentBulkOperationResponse {
@@ -57,14 +58,24 @@ export async function runBulkQuery(
     10,
   );
 
-  const { bulkOperation, userErrors } = startResult.bulkOperationRunQuery;
+  const payload = startResult.bulkOperationRunQuery;
+  if (!payload) {
+    throw new BulkOperationError(
+      "Shopify did not return bulkOperationRunQuery",
+      null,
+    );
+  }
+
+  const userErrors = asArray<{ field: string[]; message: string }>(
+    payload.userErrors,
+  );
   if (userErrors.length > 0) {
     throw new BulkOperationError(
-      userErrors.map((e) => e.message).join("; "),
+      joinUserErrors(userErrors, "Bulk operation user error"),
       "USER_ERROR",
     );
   }
-  if (!bulkOperation) {
+  if (!payload.bulkOperation) {
     throw new BulkOperationError("Shopify did not return a bulk operation", null);
   }
 
@@ -140,12 +151,24 @@ export async function* streamBulkResults(
     while ((newlineIndex = buffer.indexOf("\n")) >= 0) {
       const line = buffer.slice(0, newlineIndex).trim();
       buffer = buffer.slice(newlineIndex + 1);
-      if (line) yield JSON.parse(line);
+      if (line) {
+        try {
+          yield JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          // Skip corrupt JSONL lines rather than killing the whole export.
+        }
+      }
     }
   }
 
   const trailing = buffer.trim();
-  if (trailing) yield JSON.parse(trailing);
+  if (trailing) {
+    try {
+      yield JSON.parse(trailing) as Record<string, unknown>;
+    } catch {
+      // Skip trailing corrupt line.
+    }
+  }
 }
 
 export interface GroupedBulkRecord {

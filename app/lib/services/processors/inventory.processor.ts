@@ -18,7 +18,9 @@ interface LocationsResponse {
 
 async function fetchLocationsByName(admin: AdminClient): Promise<Map<string, string>> {
   const result = await admin.graphql<LocationsResponse>(LOCATIONS_QUERY, undefined, 5);
-  return new Map(result.locations.edges.map((e) => [e.node.name, e.node.id]));
+  return new Map(
+    (result.locations?.edges ?? []).map((e) => [e.node.name, e.node.id]),
+  );
 }
 
 // Bulk-exports every variant's inventory item + levels. inventoryItem is a
@@ -161,10 +163,24 @@ export async function runInventoryStage(job: MigrationJobWithConnection): Promis
 
     try {
       const result = await destAdmin.graphql<SetQuantitiesResponse>(INVENTORY_SET_QUANTITIES_MUTATION, { input }, 15);
-      if (result.inventorySetQuantities.userErrors.length > 0) {
-        const message = result.inventorySetQuantities.userErrors.map((e) => e.message).join("; ");
+      const setResult = result.inventorySetQuantities;
+      if ((setResult?.userErrors?.length ?? 0) > 0) {
+        const message = (setResult?.userErrors ?? [])
+          .map((e) => e.message)
+          .filter(Boolean)
+          .join("; ") || "Unknown inventorySetQuantities error";
         await db.migrationItem.update({ where: { id: item.id }, data: { status: "FAILED", errorMessage: message } });
         await logEvent(job.id, "ERROR", message, { itemId: item.id });
+        continue;
+      }
+      if (!setResult) {
+        await db.migrationItem.update({
+          where: { id: item.id },
+          data: {
+            status: "FAILED",
+            errorMessage: "inventorySetQuantities payload missing",
+          },
+        });
         continue;
       }
       await saveMapping({ storeConnectionId: job.storeConnectionId, resourceType: "inventory", sourceId: item.sourceId, destinationId: inventoryItemId });

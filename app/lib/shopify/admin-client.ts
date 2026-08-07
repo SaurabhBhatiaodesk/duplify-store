@@ -187,7 +187,14 @@ function buildClient(shopDomain: string, accessToken: string): AdminClient {
           continue;
         }
 
-        return body.data as T;
+        if (body.data == null) {
+          throw new ShopifyGraphqlError(
+            `Shopify returned empty GraphQL data for ${shopDomain}`,
+            [],
+          );
+        }
+
+        return body.data;
       }
 
       throw (

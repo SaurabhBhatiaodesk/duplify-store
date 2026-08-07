@@ -1,6 +1,7 @@
 import db from "../../../db.server";
 import { createAdminClient } from "../../shopify/admin-client";
 import { collectGroupedBulkResults, runBulkQuery } from "../../shopify/bulk-operations";
+import { joinUserErrors } from "../../shopify/graphql-safe";
 import { BULK_FILES_QUERY } from "../../shopify/queries/files";
 import { FILE_CREATE_MUTATION, type FileCreateInput } from "../../shopify/mutations/files";
 import { getLiveMapping, saveMapping } from "../idMapping.service";
@@ -93,8 +94,16 @@ export async function runFilesStage(job: MigrationJobWithConnection): Promise<vo
 
     try {
       const result = await destAdmin.graphql<FileCreateResponse>(FILE_CREATE_MUTATION, { files: [input] }, 15);
-      if (result.fileCreate.userErrors.length > 0 || result.fileCreate.files.length === 0) {
-        const message = result.fileCreate.userErrors.map((e) => e.message).join("; ") || "Unknown fileCreate error";
+      const fileCreate = result.fileCreate;
+      if (
+        !fileCreate ||
+        (fileCreate.userErrors?.length ?? 0) > 0 ||
+        !(fileCreate.files?.length)
+      ) {
+        const message = joinUserErrors(
+          fileCreate?.userErrors,
+          "Unknown fileCreate error",
+        );
         if (isInvalidRemoteFileError(message)) {
           await db.migrationItem.update({ where: { id: item.id }, data: { status: "SKIPPED", errorMessage: message } });
           await logEvent(job.id, "WARN", `Skipped file with unsupported source URL: ${message}`, { itemId: item.id });
@@ -104,7 +113,7 @@ export async function runFilesStage(job: MigrationJobWithConnection): Promise<vo
         await logEvent(job.id, "ERROR", message, { itemId: item.id });
         continue;
       }
-      const destinationId = result.fileCreate.files[0].id;
+      const destinationId = fileCreate.files[0].id;
       await saveMapping({ storeConnectionId: job.storeConnectionId, resourceType: "file", sourceId: item.sourceId, destinationId });
       await db.migrationItem.update({ where: { id: item.id }, data: { status: "COMPLETED", destinationId, errorMessage: null } });
     } catch (error) {

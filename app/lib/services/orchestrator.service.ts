@@ -124,9 +124,16 @@ async function runStages(migrationJobId: string): Promise<void> {
         await recalculateJobCounters(migrationJobId);
         return;
       }
+      const message =
+        error instanceof Error ? error.message : String(error);
       await logEvent(migrationJobId, "ERROR", `Stage ${stage} failed`, {
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
       });
+      await logEvent(
+        migrationJobId,
+        "ERROR",
+        message || `Stage ${stage} failed with an unknown error`,
+      );
       await recalculateJobCounters(migrationJobId);
       await setJobStatus(migrationJobId, "FAILED");
       return;

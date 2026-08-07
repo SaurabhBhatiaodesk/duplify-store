@@ -115,7 +115,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   }
 
   return Response.json({
-    themes: result.themes.edges.map((e) => ({
+    themes: (result.themes?.edges ?? []).map((e) => ({
       id: e.node.id,
       name: e.node.name,
       role: e.node.role,

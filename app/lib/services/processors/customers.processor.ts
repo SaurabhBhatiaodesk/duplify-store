@@ -164,7 +164,7 @@ async function processCustomerItem(
     note: customer.note ?? undefined,
     tags: customer.tags,
     taxExempt: customer.taxExempt,
-    addresses: customer.addresses.map((a) => ({
+    addresses: (customer.addresses ?? []).map((a) => ({
       address1: a.address1 ?? undefined,
       address2: a.address2 ?? undefined,
       city: a.city ?? undefined,
@@ -185,8 +185,16 @@ async function processCustomerItem(
       20,
     );
 
-    if (result.customerCreate.userErrors.length > 0 || !result.customerCreate.customer) {
-      const message = result.customerCreate.userErrors.map((e) => e.message).join("; ") || "Unknown customerCreate error";
+    if (
+      !result.customerCreate ||
+      (result.customerCreate.userErrors?.length ?? 0) > 0 ||
+      !result.customerCreate.customer
+    ) {
+      const message =
+        (result.customerCreate?.userErrors ?? [])
+          .map((e) => e.message)
+          .filter(Boolean)
+          .join("; ") || "Unknown customerCreate error";
       await fail(job.id, item.id, message);
       return;
     }

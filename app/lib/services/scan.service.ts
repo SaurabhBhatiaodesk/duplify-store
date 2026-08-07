@@ -323,7 +323,7 @@ async function scanApprox(
     undefined,
     Math.ceil(CONFLICT_SAMPLE_SIZE / 10),
   );
-  const count = result[field]?.edges.length ?? 0;
+  const count = result[field]?.edges?.length ?? 0;
   return {
     total: count,
     sampledConflicts: 0,
@@ -348,7 +348,7 @@ async function scanTheme(sourceAdmin: AdminClient): Promise<ResourceScanResult> 
       undefined,
       5,
     );
-    const theme = result.themes.edges[0]?.node;
+    const theme = result.themes?.edges?.[0]?.node;
     return {
       total: theme ? 1 : 0,
       sampledConflicts: 0,
@@ -440,7 +440,9 @@ async function fetchHandleSample(
     Math.ceil(CONFLICT_SAMPLE_SIZE / 10),
   );
 
-  return result[connectionField].edges.map((e) => e.node.handle);
+  return (result[connectionField]?.edges ?? [])
+    .map((e) => e?.node?.handle)
+    .filter((handle): handle is string => Boolean(handle));
 }
 
 async function findExistingHandles(
@@ -472,8 +474,8 @@ async function findExistingHandles(
       5,
     );
 
-    for (const edge of result[connectionField].edges) {
-      found.add(edge.node.handle);
+    for (const edge of result[connectionField]?.edges ?? []) {
+      if (edge?.node?.handle) found.add(edge.node.handle);
     }
   }
 

@@ -96,12 +96,12 @@ async function fetchProductsByPages(
 
   do {
     const result: ProductsPageResponse = await sourceAdmin.graphql<ProductsPageResponse>(PRODUCTS_PAGE_QUERY, { after }, 50);
-    for (const edge of result.products.edges) {
+    for (const edge of result.products?.edges ?? []) {
       const { variants, media, metafields, collections, ...parent } = edge.node;
       grouped.push({
         parent: parent as unknown as Record<string, unknown>,
         childrenByField: {
-          ProductVariant: variants.edges.map(
+          ProductVariant: (variants?.edges ?? []).map(
             (variant: { node: ProductBulkPayload["variants"][number] }) =>
               variant.node as unknown as Record<string, unknown>,
           ),
@@ -113,14 +113,16 @@ async function fetchProductsByPages(
             (m: { node: ProductBulkPayload["metafields"][number] }) =>
               m.node as unknown as Record<string, unknown>,
           ),
-          Collection: collections.edges.map(
+          Collection: (collections?.edges ?? []).map(
             (collection: { node: { id: string } }) =>
               collection.node as unknown as Record<string, unknown>,
           ),
         },
       });
     }
-    after = result.products.pageInfo.hasNextPage ? result.products.pageInfo.endCursor : null;
+    after = result.products?.pageInfo?.hasNextPage
+      ? result.products.pageInfo.endCursor
+      : null;
   } while (after);
 
   return grouped;
@@ -328,8 +330,16 @@ async function processProductItem(
     return;
   }
 
-  if (result.productSet.userErrors.length > 0 || !result.productSet.product) {
-    const message = result.productSet.userErrors.map((e) => e.message).join("; ") || "Unknown productSet error";
+  if (
+    !result.productSet ||
+    (result.productSet.userErrors?.length ?? 0) > 0 ||
+    !result.productSet.product
+  ) {
+    const message =
+      (result.productSet?.userErrors ?? [])
+        .map((e) => e.message)
+        .filter(Boolean)
+        .join("; ") || "Unknown productSet error";
     await failItem(job.id, item.id, item.attempt, message);
     await recordFailedVariantItems({
       migrationJobId: job.id,
@@ -361,7 +371,7 @@ async function processProductItem(
     storeConnectionId,
     productSourceId: item.sourceId,
     sourceVariants: payload.variants,
-    createdVariants: product.variants.edges.map((e) => e.node),
+    createdVariants: (product.variants?.edges ?? []).map((e) => e.node),
   });
 
   // ACTIVE products still need an Online Store publication or Channels stays 0.
