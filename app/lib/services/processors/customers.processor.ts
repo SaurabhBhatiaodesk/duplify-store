@@ -29,12 +29,12 @@ async function fetchCustomersByPages(
   let after: string | null = null;
 
   do {
-    const result = await sourceAdmin.graphql<{
-      customers: {
-        edges: Array<{ node: CustomerBulkPayload }>;
-        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    const result: {
+      customers?: {
+        edges?: Array<{ node: CustomerBulkPayload }>;
+        pageInfo?: { hasNextPage: boolean; endCursor: string | null };
       };
-    }>(CUSTOMERS_PAGE_QUERY, { after }, 25);
+    } = await sourceAdmin.graphql(CUSTOMERS_PAGE_QUERY, { after }, 25);
 
     for (const edge of result.customers?.edges ?? []) {
       if (edge?.node) customers.push(normalizeCustomerPayload(edge.node));
