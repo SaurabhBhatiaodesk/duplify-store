@@ -6,6 +6,10 @@ import {
   PRODUCT_SET_MUTATION,
   type ProductSetInput,
 } from "../../shopify/mutations/products";
+import {
+  METAFIELDS_SET_MUTATION,
+  type MetafieldsSetInput,
+} from "../../shopify/mutations/metafields";
 import { getLiveMapping, saveMapping, deleteMapping, getMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ConflictStrategy, ProductBulkPayload } from "../types";
@@ -302,15 +306,6 @@ async function processProductItem(
         values: option.values.map((value) => ({ name: value })),
       })) ?? undefined,
     variants: buildVariantInputs(payload),
-    metafields:
-      payload.metafields
-        ?.filter((m) => m.namespace && m.key && m.type && m.value != null)
-        .map((m) => ({
-          namespace: m.namespace,
-          key: m.key,
-          type: m.type,
-          value: m.value,
-        })) ?? undefined,
   };
 
   let result: ProductSetResponse;
@@ -361,6 +356,11 @@ async function processProductItem(
     destinationHandle: product.handle,
   });
 
+  // productSet treats metafields as a replacement list. Setting them here,
+  // one at a time, prevents app-owned/reference fields from failing the whole
+  // product and preserves any unrelated destination metafields.
+  await migrateProductMetafields(job, destAdmin, product.id, payload);
+
   await db.migrationItem.update({
     where: { id: item.id },
     data: { status: "COMPLETED", destinationId: product.id, errorMessage: null },
@@ -387,6 +387,73 @@ async function processProductItem(
       );
     }
   }
+
+interface MetafieldsSetResponse {
+  metafieldsSet: {
+    userErrors?: unknown;
+  } | null;
+}
+
+function canMigrateProductMetafield(metafield: ProductBulkPayload["metafields"][number]) {
+  const namespace = metafield.namespace.trim().toLowerCase();
+  const type = metafield.type.trim().toLowerCase();
+
+  // An app cannot recreate fields owned by Shopify or another app, and source
+  // GIDs in reference fields are invalid on the destination store.
+  return (
+    namespace.length > 0 &&
+    metafield.key.trim().length > 0 &&
+    type.length > 0 &&
+    metafield.value != null &&
+    !namespace.startsWith("app--") &&
+    !namespace.startsWith("$app") &&
+    namespace !== "shopify" &&
+    !type.includes("reference")
+  );
+}
+
+async function migrateProductMetafields(
+  job: MigrationJobWithConnection,
+  destAdmin: ReturnType<typeof createAdminClient>,
+  destinationProductId: string,
+  payload: ProductBulkPayload,
+): Promise<void> {
+  const metafields = payload.metafields.filter(canMigrateProductMetafield);
+
+  for (const metafield of metafields) {
+    const input: MetafieldsSetInput = {
+      ownerId: destinationProductId,
+      namespace: metafield.namespace,
+      key: metafield.key,
+      type: metafield.type,
+      value: metafield.value,
+    };
+
+    try {
+      const result = await destAdmin.graphql<MetafieldsSetResponse>(
+        METAFIELDS_SET_MUTATION,
+        { metafields: [input] },
+        10,
+      );
+      const errors = result.metafieldsSet?.userErrors;
+      if (joinUserErrors(errors, "").length > 0) {
+        await logEvent(
+          job.id,
+          "WARN",
+          `Skipped product metafield ${metafield.namespace}.${metafield.key}: ${joinUserErrors(errors)}`,
+          { sourceId: payload.parent.id, destinationId: destinationProductId },
+        );
+      }
+    } catch (error) {
+      await logEvent(
+        job.id,
+        "WARN",
+        `Skipped product metafield ${metafield.namespace}.${metafield.key}: ${errMsg(error)}`,
+        { sourceId: payload.parent.id, destinationId: destinationProductId },
+      );
+    }
+  }
+}
 
   await logEvent(job.id, "INFO", `Migrated product "${payload.parent.title}"`, {
     sourceId: item.sourceId,
