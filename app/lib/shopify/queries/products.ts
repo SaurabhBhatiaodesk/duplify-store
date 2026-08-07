@@ -49,6 +49,10 @@ export const BULK_PRODUCTS_QUERY = `
         metafields {
           edges {
             node {
+              # Bulk JSONL emits nested records flat. The id lets the
+              # grouping code identify this child as a Metafield and attach
+              # it to its parent product.
+              id
               namespace
               key
               type
