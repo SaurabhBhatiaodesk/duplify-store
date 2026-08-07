@@ -224,8 +224,7 @@ export default function MigrationProgress() {
   const isScanning = job.status === "SCANNING";
   const isScanComplete = job.status === "SCANNED";
   const hasMissingPermissions = job.missingPermissions.length > 0;
-  const canStartMigration =
-    isScanComplete && !hasMissingPermissions && !job.needsPermissionRescan;
+  const canStartMigration = isScanComplete && !hasMissingPermissions;
   const sourceReconnectHref = `/auth/external/begin?shop=${encodeURIComponent(job.source)}&role=SOURCE`;
 
   useEffect(() => {
@@ -247,10 +246,10 @@ export default function MigrationProgress() {
   const statusDetail = isScanning
     ? "Scan is checking store data and permissions."
     : isScanComplete
-      ? job.needsPermissionRescan
-        ? "Permissions were updated. Run the scan again before starting migration."
-        : hasMissingPermissions
-          ? "Scan finished, but permissions need attention before migration can start."
+      ? hasMissingPermissions
+        ? "Scan finished, but permissions need attention before migration can start."
+        : job.needsPermissionRescan
+          ? "Scan finished. Access was updated after this scan — you can start now or refresh counts."
           : "Scan finished. Migration has not started yet."
       : `${processedRecords} of ${job.totalRecords} processed`;
 
@@ -283,17 +282,11 @@ export default function MigrationProgress() {
         <s-section heading="Scan result">
           <s-stack direction="block" gap="base">
             <s-banner
-              tone={
-                hasMissingPermissions || job.needsPermissionRescan
-                  ? "warning"
-                  : "success"
-              }
+              tone={hasMissingPermissions ? "warning" : "success"}
               heading={
-                job.needsPermissionRescan
-                  ? "Scan needs refresh"
-                  : hasMissingPermissions
-                    ? "Scan complete: permissions needed"
-                    : "Scan complete"
+                hasMissingPermissions
+                  ? "Scan complete: permissions needed"
+                  : "Scan complete"
               }
             >
               <s-paragraph>{statusDetail}</s-paragraph>
@@ -312,9 +305,9 @@ export default function MigrationProgress() {
                   </s-button>
                 </Form>
               )}
-              {job.needsPermissionRescan && (
+              {job.needsPermissionRescan && !hasMissingPermissions && (
                 <Form method="post" action={`/api/migrations/${job.id}/scan`}>
-                  <s-button type="submit" variant="primary">
+                  <s-button type="submit" variant="secondary">
                     Run scan again
                   </s-button>
                 </Form>

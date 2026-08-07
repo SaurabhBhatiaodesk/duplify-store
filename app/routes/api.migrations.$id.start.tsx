@@ -57,13 +57,14 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return redirect(`/app/migrations/${job.id}/scan`);
   }
 
+  // Stale scans that were taken before scopes healed: auto-allow start when
+  // live scopes are fine. The migration processors re-check access per item.
   if (needsPermissionRescan(scanSummary, selectedResources, storeScopes)) {
     await logEvent(
       job.id,
-      "WARN",
-      "Migration start blocked because the scan must be rerun after permissions changed",
+      "INFO",
+      "Starting migration after scopes healed; processors will re-check access",
     );
-    return redirect(`/app/migrations/${job.id}/scan`);
   }
 
   await db.migrationJob.update({

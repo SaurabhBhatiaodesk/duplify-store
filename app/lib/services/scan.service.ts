@@ -3,9 +3,12 @@ import { createAdminClient, type AdminClient } from "../shopify/admin-client";
 import {
   missingReadScopes,
   missingRequestedScopes,
-  missingScopes,
-  shopCanMigrate,
+  shopIsConnected,
 } from "../shopify/scopes";
+import {
+  hydrateShopFromOfflineSession,
+  refreshShopScopesIfStale,
+} from "./storeConnection.service";
 import {
   getMigrationJob,
   logEvent,
@@ -62,19 +65,43 @@ const APPROX_COUNT_FIELDS: Record<
 };
 
 export async function runScan(migrationJobId: string): Promise<void> {
-  const job = await getMigrationJob(migrationJobId);
+  let job = await getMigrationJob(migrationJobId);
   if (!job) throw new Error(`MigrationJob ${migrationJobId} not found`);
 
   await setJobStatus(migrationJobId, "SCANNING");
   await logEvent(migrationJobId, "INFO", "Pre-migration scan started");
 
-  const sourceAdmin = createAdminClient(job.storeConnection.sourceShop);
-  const destAdmin = createAdminClient(job.storeConnection.destinationShop);
-  const resources = job.selectedResources as string[];
+  // Heal stale/empty Shop.scope before permission checks — otherwise scans
+  // skip with all zeros and force a useless "Permissions updated" loop.
+  try {
+    await Promise.all([
+      hydrateShopFromOfflineSession(job.storeConnection.sourceShop.shopDomain)
+        .then(async (hydrated) => {
+          if (hydrated) await refreshShopScopesIfStale(hydrated);
+        })
+        .catch(() => undefined),
+      hydrateShopFromOfflineSession(
+        job.storeConnection.destinationShop.shopDomain,
+      )
+        .then(async (hydrated) => {
+          if (hydrated) await refreshShopScopesIfStale(hydrated);
+        })
+        .catch(() => undefined),
+    ]);
+  } catch {
+    // Continue with whatever token/scope we already have.
+  }
+
+  job = await getMigrationJob(migrationJobId);
+  if (!job) throw new Error(`MigrationJob ${migrationJobId} not found`);
+
   const sourceShop = job.storeConnection.sourceShop;
   const destinationShop = job.storeConnection.destinationShop;
+  const sourceAdmin = createAdminClient(sourceShop);
+  const destAdmin = createAdminClient(destinationShop);
+  const resources = job.selectedResources as string[];
   const sourceScope = sourceShop.scope;
-  const destScope = job.storeConnection.destinationShop.scope;
+  const destScope = destinationShop.scope;
 
   const summary: ScanSummary = {
     generatedAt: new Date().toISOString(),
@@ -83,64 +110,45 @@ export async function runScan(migrationJobId: string): Promise<void> {
   };
 
   try {
-    const missingAppPermissions = [
-      {
-        resourceType: "app permissions",
-        missing: shopCanMigrate(sourceScope)
-          ? []
-          : missingRequestedScopes(sourceScope),
-        shopRole: "source" as const,
-        shopDomain: sourceShop.shopDomain,
-      },
-      {
-        resourceType: "app permissions",
-        missing: shopCanMigrate(destScope)
-          ? []
-          : missingRequestedScopes(destScope),
-        shopRole: "destination" as const,
-        shopDomain: destinationShop.shopDomain,
-      },
-    ].filter((p) => p.missing.length > 0);
+    const sourceConnected = shopIsConnected(sourceShop);
+    const destinationConnected = shopIsConnected(destinationShop);
 
-    const selectedResourceTypes = resourceTypesForSelections(resources);
-    const missingSourcePermissions =
-      missingAppPermissions.length > 0 || shopCanMigrate(sourceScope)
-        ? []
-        : selectedResourceTypes
-            .map((resourceType) => ({
-              resourceType,
-              missing: missingReadScopes(resourceType, sourceScope),
-              shopRole: "source" as const,
-              shopDomain: sourceShop.shopDomain,
-            }))
-            .filter((p) => p.missing.length > 0);
+    // Hard-block only when a store is not installed/connected. Connected
+    // stores with a token should always get a real count scan — stale scope
+    // strings must not zero out the whole preview.
+    if (!sourceConnected || !destinationConnected) {
+      const missingAppPermissions = [
+        {
+          resourceType: "app permissions",
+          missing: sourceConnected
+            ? []
+            : missingRequestedScopes(sourceScope || ""),
+          shopRole: "source" as const,
+          shopDomain: sourceShop.shopDomain,
+        },
+        {
+          resourceType: "app permissions",
+          missing: destinationConnected
+            ? []
+            : missingRequestedScopes(destScope || ""),
+          shopRole: "destination" as const,
+          shopDomain: destinationShop.shopDomain,
+        },
+      ].filter((p) => p.missing.length > 0);
 
-    const missingDestinationPermissions =
-      missingAppPermissions.length > 0 || shopCanMigrate(destScope)
-        ? []
-        : selectedResourceTypes
-            .map((resourceType) => ({
-              resourceType,
-              missing: missingScopes(resourceType, destScope),
-              shopRole: "destination" as const,
-              shopDomain: destinationShop.shopDomain,
-            }))
-            .filter((p) => p.missing.length > 0);
+      summary.requiredPermissions.push(...missingAppPermissions);
 
-    summary.requiredPermissions.push(
-      ...missingAppPermissions,
-      ...missingSourcePermissions,
-      ...missingDestinationPermissions,
-    );
-
-    if (summary.requiredPermissions.length > 0) {
       for (const key of resources) {
         summary.resources[key] = {
           total: 0,
           sampledConflicts: 0,
           sampleSize: 0,
           sampleTruncated: false,
-          unsupported: ["Store pair is missing required Admin API permissions"],
+          unsupported: [
+            !sourceConnected
+              ? "Source store is not connected"
+              : "Destination store is not connected",
+          ],
         };
       }
 
@@ -156,13 +164,17 @@ export async function runScan(migrationJobId: string): Promise<void> {
       await logEvent(
         migrationJobId,
         "WARN",
-        "Pre-migration scan skipped because store permissions are missing",
+        "Pre-migration scan skipped because a store is not connected",
         {
-          missingPermissions: summary.requiredPermissions,
+          sourceConnected,
+          destinationConnected,
         },
       );
       return;
     }
+
+    // Connected stores always get a real count scan. Scope strings alone must
+    // never zero out the preview or trap merchants in a rescan loop.
 
     for (const { resourceType, field } of HANDLE_KEYED) {
       const selectionKey = field; // "products" / "collections" are also the selectedResources keys

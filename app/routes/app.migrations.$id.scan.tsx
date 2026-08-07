@@ -413,34 +413,39 @@ export default function MigrationScan() {
                   </Form>
                 </s-stack>
               </s-banner>
-            ) : job.needsPermissionRescan ? (
-              <s-banner tone="info" heading="Permissions updated">
-                <s-stack direction="block" gap="base">
-                  <s-paragraph>
-                    The store permissions were updated after this scan. Run the
-                    scan again so counts, conflicts, and permission checks use
-                    the latest store access.
-                  </s-paragraph>
-                  <Form method="post" action={`/api/migrations/${job.id}/scan`}>
-                    <s-button type="submit" variant="primary">
-                      Run scan again
-                    </s-button>
-                  </Form>
-                </s-stack>
-              </s-banner>
             ) : (
               <s-stack direction="block" gap="base">
+                {job.needsPermissionRescan && (
+                  <s-banner tone="info" heading="Fresh counts recommended">
+                    <s-paragraph>
+                      Store access was updated after this scan. You can start
+                      now, or run the scan again for updated counts.
+                    </s-paragraph>
+                  </s-banner>
+                )}
                 <s-paragraph>
                   Conflicting records will be handled using the conflict
                   strategy you chose. This scan is a preview based on a sample —
                   the migration itself always re-checks each record before
                   creating it, so nothing will be duplicated.
                 </s-paragraph>
-                <Form method="post" action={`/api/migrations/${job.id}/start`}>
-                  <s-button type="submit" variant="primary">
-                    Start migration
-                  </s-button>
-                </Form>
+                <s-stack direction="inline" gap="base">
+                  <Form method="post" action={`/api/migrations/${job.id}/start`}>
+                    <s-button type="submit" variant="primary">
+                      Start migration
+                    </s-button>
+                  </Form>
+                  {job.needsPermissionRescan && (
+                    <Form
+                      method="post"
+                      action={`/api/migrations/${job.id}/scan`}
+                    >
+                      <s-button type="submit" variant="secondary">
+                        Run scan again
+                      </s-button>
+                    </Form>
+                  )}
+                </s-stack>
               </s-stack>
             )}
           </s-section>
