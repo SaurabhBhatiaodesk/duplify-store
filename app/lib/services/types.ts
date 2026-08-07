@@ -59,7 +59,7 @@ export interface CustomerBulkPayload {
   note: string | null;
   tags: string[];
   taxExempt: boolean;
-  addresses: Array<{
+  addresses?: Array<{
     address1: string | null;
     address2: string | null;
     city: string | null;
@@ -71,6 +71,18 @@ export interface CustomerBulkPayload {
     lastName: string | null;
     company: string | null;
   }>;
+  defaultAddress?: {
+    address1: string | null;
+    address2: string | null;
+    city: string | null;
+    provinceCode: string | null;
+    countryCodeV2: string | null;
+    zip: string | null;
+    phone: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    company: string | null;
+  } | null;
 }
 
 export interface PageBulkPayload {

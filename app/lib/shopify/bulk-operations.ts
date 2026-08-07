@@ -111,7 +111,9 @@ async function pollUntilFinished(admin: AdminClient): Promise<BulkOperationNode>
     if (op.status === "COMPLETED") return op;
     if (op.status === "FAILED" || op.status === "CANCELED" || op.status === "EXPIRED") {
       throw new BulkOperationError(
-        `Bulk operation ended with status ${op.status}`,
+        `Bulk operation ended with status ${op.status}${
+          op.errorCode ? ` (${op.errorCode})` : ""
+        }`,
         op.errorCode,
       );
     }

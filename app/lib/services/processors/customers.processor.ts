@@ -1,12 +1,51 @@
 import db from "../../../db.server";
 import { createAdminClient } from "../../shopify/admin-client";
 import { collectGroupedBulkResults, runBulkQuery } from "../../shopify/bulk-operations";
-import { BULK_CUSTOMERS_QUERY, CUSTOMER_BY_EMAIL_QUERY } from "../../shopify/queries/customers";
+import {
+  BULK_CUSTOMERS_QUERY,
+  CUSTOMERS_PAGE_QUERY,
+  CUSTOMER_BY_EMAIL_QUERY,
+} from "../../shopify/queries/customers";
 import { CUSTOMER_CREATE_MUTATION, type CustomerCreateInput } from "../../shopify/mutations/customers";
 import { getLiveMapping, saveMapping } from "../idMapping.service";
 import { isMigrationCancelled, logEvent } from "../migrationJob.service";
 import type { ConflictStrategy, CustomerBulkPayload } from "../types";
 import type { MigrationJobWithConnection } from "../orchestrator.service";
+
+function normalizeCustomerPayload(
+  raw: CustomerBulkPayload,
+): CustomerBulkPayload {
+  if (raw.addresses && raw.addresses.length > 0) return raw;
+  if (raw.defaultAddress) {
+    return { ...raw, addresses: [raw.defaultAddress] };
+  }
+  return { ...raw, addresses: [] };
+}
+
+async function fetchCustomersByPages(
+  sourceAdmin: ReturnType<typeof createAdminClient>,
+): Promise<CustomerBulkPayload[]> {
+  const customers: CustomerBulkPayload[] = [];
+  let after: string | null = null;
+
+  do {
+    const result = await sourceAdmin.graphql<{
+      customers: {
+        edges: Array<{ node: CustomerBulkPayload }>;
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      };
+    }>(CUSTOMERS_PAGE_QUERY, { after }, 25);
+
+    for (const edge of result.customers?.edges ?? []) {
+      if (edge?.node) customers.push(normalizeCustomerPayload(edge.node));
+    }
+    after = result.customers?.pageInfo?.hasNextPage
+      ? result.customers.pageInfo.endCursor
+      : null;
+  } while (after);
+
+  return customers;
+}
 
 export async function ensureCustomerItems(job: MigrationJobWithConnection): Promise<void> {
   const existing = await db.migrationItem.count({
@@ -17,21 +56,36 @@ export async function ensureCustomerItems(job: MigrationJobWithConnection): Prom
   await logEvent(job.id, "INFO", "Exporting customers from source store");
 
   const sourceAdmin = createAdminClient(job.storeConnection.sourceShop);
-  const op = await runBulkQuery(sourceAdmin, BULK_CUSTOMERS_QUERY);
-  if (!op.url) {
-    await logEvent(job.id, "INFO", "Source store has no customers to migrate");
-    return;
+  let customers: CustomerBulkPayload[] = [];
+
+  try {
+    const op = await runBulkQuery(sourceAdmin, BULK_CUSTOMERS_QUERY);
+    if (!op.url) {
+      await logEvent(job.id, "INFO", "Source store has no customers to migrate");
+      return;
+    }
+    const grouped = await collectGroupedBulkResults(op.url);
+    customers = grouped.map((record) =>
+      normalizeCustomerPayload(record.parent as unknown as CustomerBulkPayload),
+    );
+  } catch (error) {
+    await logEvent(
+      job.id,
+      "WARN",
+      `Customer bulk export failed; falling back to paginated export: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    customers = await fetchCustomersByPages(sourceAdmin);
   }
 
-  const grouped = await collectGroupedBulkResults(op.url);
-
-  const rows = grouped.map((record) => ({
+  const rows = customers.map((customer) => ({
     migrationJobId: job.id,
     resourceType: "customer",
     stage: "customers",
-    sourceId: (record.parent as unknown as CustomerBulkPayload).id,
+    sourceId: customer.id,
     status: "PENDING" as const,
-    payload: record.parent as unknown as object,
+    payload: customer as unknown as object,
   }));
 
   if (rows.length > 0) {

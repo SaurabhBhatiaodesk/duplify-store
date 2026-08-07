@@ -110,6 +110,8 @@ async function runStages(migrationJobId: string): Promise<void> {
   const stages = stagesForJob(initialJob.selectedResources as string[]);
   await setJobStatus(migrationJobId, "RUNNING");
 
+  let stageFailures = 0;
+
   for (const stage of stages) {
     const job = await getMigrationJob(migrationJobId);
     if (!job || job.status === "CANCELLED") return;
@@ -126,6 +128,7 @@ async function runStages(migrationJobId: string): Promise<void> {
       }
       const message =
         error instanceof Error ? error.message : String(error);
+      stageFailures += 1;
       await logEvent(migrationJobId, "ERROR", `Stage ${stage} failed`, {
         error: message,
       });
@@ -134,9 +137,13 @@ async function runStages(migrationJobId: string): Promise<void> {
         "ERROR",
         message || `Stage ${stage} failed with an unknown error`,
       );
+      await logEvent(
+        migrationJobId,
+        "WARN",
+        `Continuing migration after ${stage} failure so later stages (e.g. theme) can still run`,
+      );
       await recalculateJobCounters(migrationJobId);
-      await setJobStatus(migrationJobId, "FAILED");
-      return;
+      continue;
     }
 
     await recalculateJobCounters(migrationJobId);
@@ -145,7 +152,7 @@ async function runStages(migrationJobId: string): Promise<void> {
 
   const finalCounters = await recalculateJobCounters(migrationJobId);
   if (await isMigrationCancelled(migrationJobId)) return;
-  if (finalCounters.failed > 0) {
+  if (stageFailures > 0 || finalCounters.failed > 0) {
     await setJobStatus(migrationJobId, "FAILED", {
       completedAt: new Date(),
       currentStage: null,
@@ -153,7 +160,7 @@ async function runStages(migrationJobId: string): Promise<void> {
     await logEvent(
       migrationJobId,
       "WARN",
-      `Migration finished with ${finalCounters.failed} failed record(s)`,
+      `Migration finished with errors (${stageFailures} stage failure(s), ${finalCounters.failed} failed record(s))`,
     );
     return;
   }
