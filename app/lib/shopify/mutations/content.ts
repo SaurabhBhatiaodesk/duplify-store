@@ -16,17 +16,15 @@ export interface PageCreateInput {
 }
 
 export const PAGE_UPDATE_MUTATION = `#graphql
-  mutation duplifyPageUpdate($page: PageUpdateInput!) {
-    pageUpdate(page: $page) {
+  mutation duplifyPageUpdate($id: ID!, $page: PageUpdateInput!) {
+    pageUpdate(id: $id, page: $page) {
       page { id handle }
       userErrors { field message }
     }
   }
 `;
 
-export interface PageUpdateInput extends PageCreateInput {
-  id: string;
-}
+export type PageUpdateInput = PageCreateInput;
 
 export const BLOG_CREATE_MUTATION = `#graphql
   mutation duplifyBlogCreate($blog: BlogCreateInput!) {

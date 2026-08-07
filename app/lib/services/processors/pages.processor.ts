@@ -123,7 +123,10 @@ export async function runPagesStage(job: MigrationJobWithConnection): Promise<vo
         ? (
             await destAdmin.graphql<PageUpdateResponse>(
             PAGE_UPDATE_MUTATION,
-            { page: { ...input, id: existingDestinationId! } satisfies PageUpdateInput },
+            {
+              id: existingDestinationId,
+              page: input satisfies PageUpdateInput,
+            },
             10,
           )
           ).pageUpdate
