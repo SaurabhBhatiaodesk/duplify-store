@@ -154,6 +154,10 @@ export default function MigrationScan() {
     primaryFailure?.detail ??
     primaryFailure?.message ??
     "No detailed error was logged for this failure.";
+  const isAuthFailure =
+    /invalid api key|access token|unrecognized login|expired or was revoked|returned 401|returned 403/i.test(
+      failureReason,
+    );
 
   return (
     <s-page heading="Pre-migration scan" inlineSize="large">
@@ -218,9 +222,26 @@ export default function MigrationScan() {
           <s-stack direction="block" gap="base">
             <s-banner
               tone="critical"
-              heading={`Failed at ${formatStage(job.currentStage)}`}
+              heading={
+                isAuthFailure
+                  ? "Store access expired — reconnect and scan again"
+                  : `Failed at ${formatStage(job.currentStage)}`
+              }
             >
-              <s-paragraph>{failureReason}</s-paragraph>
+              <s-paragraph>
+                {isAuthFailure
+                  ? `One of the stores rejected Duplify's access token. Open Duplify once on ${job.source} (source), then come back here and run a new scan. Destination store: ${job.destination}.`
+                  : failureReason}
+              </s-paragraph>
+              {isAuthFailure && (
+                <s-button
+                  slot="primary-action"
+                  href={`https://admin.shopify.com/store/${job.source.replace(/\.myshopify\.com$/i, "")}/apps`}
+                  target="_blank"
+                >
+                  Open source store apps
+                </s-button>
+              )}
               <s-button
                 slot="secondary-actions"
                 href={`/app/migrations/${job.id}/logs`}

@@ -26,6 +26,38 @@ export class ShopifyGraphqlError extends Error {
   }
 }
 
+export class ShopifyAuthError extends Error {
+  constructor(
+    message: string,
+    public readonly shopDomain: string,
+  ) {
+    super(message);
+    this.name = "ShopifyAuthError";
+  }
+}
+
+export function isShopifyAuthError(error: unknown): error is ShopifyAuthError {
+  if (error instanceof ShopifyAuthError) return true;
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("invalid api key") ||
+    message.includes("access token") ||
+    message.includes("unrecognized login") ||
+    message.includes("returned 401") ||
+    message.includes("returned 403")
+  );
+}
+
+function authErrorForShop(shopDomain: string, detail?: string) {
+  return new ShopifyAuthError(
+    `Access to ${shopDomain} expired or was revoked${
+      detail ? ` (${detail})` : ""
+    }. Open Duplify once on that store to reconnect, then run the scan again.`,
+    shopDomain,
+  );
+}
+
 export interface AdminClient {
   shopDomain: string;
   graphql<T = unknown>(
@@ -169,10 +201,15 @@ function buildClient(shopDomain: string, accessToken: string): AdminClient {
         }
 
         if (graphqlErrors.length > 0) {
-          throw new ShopifyGraphqlError(
-            graphqlErrors.map((e) => e.message).join("; "),
-            graphqlErrors,
-          );
+          const message = graphqlErrors.map((e) => e.message).join("; ");
+          if (
+            /invalid api key|access token|unrecognized login|wrong password/i.test(
+              message,
+            )
+          ) {
+            throw authErrorForShop(shopDomain, message);
+          }
+          throw new ShopifyGraphqlError(message, graphqlErrors);
         }
 
         if (!response.ok) {
@@ -181,7 +218,10 @@ function buildClient(shopDomain: string, accessToken: string): AdminClient {
           );
           // Auth / forbidden responses usually won't succeed on retry.
           if (response.status === 401 || response.status === 403) {
-            throw lastError;
+            throw authErrorForShop(
+              shopDomain,
+              `HTTP ${response.status}`,
+            );
           }
           await sleep(jitteredBackoffMs(attempt));
           continue;

@@ -1,5 +1,9 @@
 import db from "../../db.server";
-import { createAdminClient, type AdminClient } from "../shopify/admin-client";
+import {
+  createAdminClient,
+  isShopifyAuthError,
+  type AdminClient,
+} from "../shopify/admin-client";
 import {
   missingReadScopes,
   missingRequestedScopes,
@@ -245,9 +249,85 @@ export async function runScan(migrationJobId: string): Promise<void> {
       totalRecords,
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     await logEvent(migrationJobId, "ERROR", "Pre-migration scan failed", {
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
     });
+
+    // Auth failures are recoverable by reopening the app on that store —
+    // keep the job reviewable instead of an opaque "unknown stage" failure.
+    if (
+      isShopifyAuthError(error) ||
+      /invalid api key|access token/i.test(message)
+    ) {
+      const authShop =
+        error instanceof Error && "shopDomain" in error
+          ? String((error as { shopDomain?: string }).shopDomain ?? "")
+          : "";
+      const messageShop = message.match(
+        /Access to ([a-z0-9-]+\.myshopify\.com)/i,
+      )?.[1];
+      const reconnectDomain =
+        authShop ||
+        messageShop ||
+        job.storeConnection.sourceShop.shopDomain;
+
+      // Drop the dead token so Overview/Connect stop treating the shop as ready.
+      try {
+        await db.shop.update({
+          where: { shopDomain: reconnectDomain },
+          data: { accessTokenEncrypted: "", scope: "" },
+        });
+      } catch {
+        // Best-effort — still return a reconnectable scan result.
+      }
+
+      const summary: ScanSummary = {
+        generatedAt: new Date().toISOString(),
+        resources: Object.fromEntries(
+          resources.map((key) => [
+            key,
+            {
+              total: 0,
+              sampledConflicts: 0,
+              sampleSize: 0,
+              sampleTruncated: false,
+              unsupported: [
+                `Reconnect ${reconnectDomain}: open Duplify on that store once, then run scan again`,
+              ],
+            },
+          ]),
+        ),
+        requiredPermissions: [
+          {
+            resourceType: "app permissions",
+            missing: missingRequestedScopes(""),
+            shopRole:
+              reconnectDomain ===
+              job.storeConnection.destinationShop.shopDomain
+                ? "destination"
+                : "source",
+            shopDomain: reconnectDomain,
+          },
+        ],
+      };
+
+      await db.migrationJob.update({
+        where: { id: migrationJobId },
+        data: {
+          status: "SCANNED",
+          scanSummary: summary as unknown as object,
+          totalRecords: 0,
+        },
+      });
+      await logEvent(
+        migrationJobId,
+        "WARN",
+        `Scan blocked: reconnect ${reconnectDomain} then run scan again`,
+      );
+      return;
+    }
+
     await setJobStatus(migrationJobId, "FAILED");
     throw error;
   }
