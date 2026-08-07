@@ -9,7 +9,7 @@ import {
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { listMigrationJobs } from "../lib/services/migrationJob.service";
-import { countLiveMissingPermissions } from "../lib/services/permissionStatus.server";
+import { countLiveMissingPermissions, scanSummaryLooksBlocked } from "../lib/services/permissionStatus.server";
 import { MigrationList } from "../components/dashboard/MigrationList";
 import { EmptyState } from "../components/shared/EmptyState";
 
@@ -67,6 +67,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       completedRecords: j.completedRecords,
       failedRecords: j.failedRecords,
       missingPermissionsCount: countMissingPermissions(j),
+      scanBlocked: scanSummaryLooksBlocked(j.scanSummary),
       createdAt: j.createdAt,
     })),
   };

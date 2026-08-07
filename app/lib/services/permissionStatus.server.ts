@@ -146,3 +146,29 @@ export function storeScopesFromConnection(connection: {
     destinationConnected: shopIsConnected(connection.destinationShop),
   };
 }
+
+/** History/Overview: 0 records after auth/reconnect block is not an empty store. */
+export function scanSummaryLooksBlocked(scanSummary: unknown): boolean {
+  if (!scanSummary || typeof scanSummary !== "object") return false;
+  const summary = scanSummary as {
+    resources?: Record<string, { unsupported?: string[] }>;
+    requiredPermissions?: Array<{ missing?: string[] }>;
+  };
+  if (
+    summary.requiredPermissions?.some((permission) =>
+      (permission.missing ?? []).some(
+        (scope) => scope === "reconnect" || /reconnect/i.test(scope),
+      ),
+    )
+  ) {
+    return true;
+  }
+  const unsupported = Object.values(summary.resources ?? {}).flatMap(
+    (resource) => resource.unsupported ?? [],
+  );
+  return unsupported.some((message) =>
+    /reconnect|not connected|expired|invalid api key|access token/i.test(
+      message,
+    ),
+  );
+}

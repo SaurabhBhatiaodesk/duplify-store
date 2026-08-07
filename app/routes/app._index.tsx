@@ -16,7 +16,7 @@ import {
   refreshShopScopesIfStale,
 } from "../lib/services/storeConnection.service";
 import { createMigrationJob } from "../lib/services/migrationJob.service";
-import { countLiveMissingPermissions } from "../lib/services/permissionStatus.server";
+import { countLiveMissingPermissions, scanSummaryLooksBlocked } from "../lib/services/permissionStatus.server";
 import type { ConflictStrategy } from "../lib/services/types";
 import { StatCard } from "../components/dashboard/StatCard";
 import { StatusBadge } from "../components/dashboard/StatusBadge";
@@ -117,6 +117,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       totalRecords: j.totalRecords,
       completedRecords: j.completedRecords,
       missingPermissionsCount: countMissingPermissions(j),
+      scanBlocked: scanSummaryLooksBlocked(j.scanSummary),
       createdAt: j.createdAt,
     })),
     stats: { active, completed, failed },

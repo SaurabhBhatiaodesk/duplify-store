@@ -12,6 +12,8 @@ interface MigrationListJob {
   completedRecords: number;
   failedRecords?: number;
   missingPermissionsCount?: number;
+  /** True when scan finished with 0 because access/reconnect blocked counting */
+  scanBlocked?: boolean;
   createdAt: Date | string;
 }
 
@@ -69,17 +71,25 @@ function getProgressState(job: MigrationListJob) {
   }
 
   if (job.status === "SCANNED") {
+    const missingPermissionsCount = job.missingPermissionsCount ?? 0;
+    let value: string;
+    let color = "#008060";
+    if (job.scanBlocked || missingPermissionsCount > 0) {
+      value = job.scanBlocked
+        ? "Reconnect source store"
+        : `${pluralize(missingPermissionsCount, "permission")} missing`;
+      color = "#b7791f";
+    } else if (job.totalRecords > 0) {
+      value = `${pluralize(job.totalRecords, "record")} found`;
+    } else {
+      value = "No records found";
+    }
     return {
       label: "Scan complete",
-      value:
-        missingPermissionsCount > 0
-          ? `${pluralize(missingPermissionsCount, "permission")} missing`
-          : job.totalRecords > 0
-            ? `${pluralize(job.totalRecords, "record")} found`
-            : "No records found",
+      value,
       percent: 100,
       indeterminate: false,
-      color: missingPermissionsCount > 0 ? "#b7791f" : "#008060",
+      color,
       ariaLabel: "Pre-migration scan completed",
     };
   }
